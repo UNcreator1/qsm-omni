@@ -3303,6 +3303,7 @@ type SelfImproveReport struct {
 	FinalPassedTasks    int                 `json:"final_passed_tasks"`
 	ForceDelta          float64             `json:"force_delta"`
 	RepeatedFailureRate float64             `json:"repeated_failure_rate"`
+	FailedTasks         map[string]int      `json:"failed_tasks,omitempty"`
 	LessonsPromoted     []SelfImproveLesson `json:"lessons_promoted,omitempty"`
 	CycleReports        []BenchmarkReport   `json:"cycle_reports,omitempty"`
 	Errors              []string            `json:"errors,omitempty"`
@@ -3429,6 +3430,9 @@ func runSelfImprove(root, suite string, cycles int, harnessMode, sandboxBackend,
 		}
 	}
 	if len(failures) > 0 {
+		out.FailedTasks = failures
+	}
+	if len(failures) > 0 {
 		out.RepeatedFailureRate = float64(repeated) / float64(len(failures))
 	}
 	if out.FinalPassedTasks < out.BaselinePassedTasks {
@@ -3481,6 +3485,17 @@ func selfImproveMarkdown(report SelfImproveReport) string {
 		b.WriteString("\n## Lessons Promoted\n\n")
 		for _, lesson := range report.LessonsPromoted {
 			fmt.Fprintf(&b, "- `%s` %s (%s)\n", lesson.ID, lesson.Content, lesson.Citation)
+		}
+	}
+	if len(report.FailedTasks) > 0 {
+		b.WriteString("\n## Failed Tasks\n\n")
+		names := make([]string, 0, len(report.FailedTasks))
+		for name := range report.FailedTasks {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			fmt.Fprintf(&b, "- `%s` failed in `%d` cycle(s)\n", name, report.FailedTasks[name])
 		}
 	}
 	if len(report.Errors) > 0 {
