@@ -1,0 +1,7 @@
+{
+  "id": "alpha",
+  "role": "architecture",
+  "provider": "9router",
+  "model": "gpt-5.4",
+  "strengths": ["system design", "test strategy", "product decomposition"]
+}

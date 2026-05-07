@@ -1,0 +1,1 @@
+Build a tiny CLI product that can move from zero-shot hypothesis to hydrated evidence, isolated branch rooms, audited scoring, and deterministic collapse.

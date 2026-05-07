@@ -1,0 +1,75 @@
+name: QSM Production QA
+
+on:
+  push:
+    branches: [ main, master, dev ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  production-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      QSM_ALLOW_LOCAL_RELEASE_EVIDENCE: "0"
+      QSM_SANDBOX_DOCKER_IMAGE: qsm-omni-sandbox:local
+      QSM_SHARED_CACHE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build QSM
+        working-directory: quantum-swarm-v3-scratch
+        run: |
+          go test ./...
+          go build -o qsm ./cmd/qsm
+      - name: Build omni sandbox image
+        working-directory: quantum-swarm-v3-scratch
+        run: docker build -t qsm-omni-sandbox:local -f deploy/qsm-omni-sandbox.Dockerfile .
+      - name: Probe sandbox
+        working-directory: quantum-swarm-v3-scratch
+        run: ./qsm sandbox -probe -backend docker -image qsm-omni-sandbox:local -profile omni
+      - name: Stress and recovery evidence
+        working-directory: quantum-swarm-v3-scratch
+        run: |
+          ./qsm stress -sandbox docker -nodes 12 -parallel 6 -large-repo-files 1000
+          ./qsm recovery -sandbox docker
+          ./qsm contributor-smoke
+      - name: Run omni benchmark
+        working-directory: quantum-swarm-v3-scratch
+        run: ./qsm benchmark -suite omni-contract -sandbox docker -image qsm-omni-sandbox:local -positions 2 -parallel 2
+      - name: Run self improvement
+        working-directory: quantum-swarm-v3-scratch
+        run: ./qsm self-improve -suite omni-contract -cycles 3 -sandbox docker -image qsm-omni-sandbox:local
+      - name: Local evidence reports
+        working-directory: quantum-swarm-v3-scratch
+        run: |
+          ./qsm production-gap || true
+          ./qsm ops-readiness
+          ./qsm compliance
+      - name: Production QA
+        working-directory: quantum-swarm-v3-scratch
+        run: ./qsm qa -profile production -sandbox docker -image qsm-omni-sandbox:local -refresh=true
+      - name: Omni alpha QA advisory
+        working-directory: quantum-swarm-v3-scratch
+        continue-on-error: true
+        run: ./qsm qa -profile omni-alpha -sandbox docker -image qsm-omni-sandbox:local -refresh=true
+      - name: Upload QSM evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsm-production-evidence
+          path: |
+            quantum-swarm-v3-scratch/.state/*.json
+            quantum-swarm-v3-scratch/.state/*.md
+            quantum-swarm-v3-scratch/.benchmarks/**/.state/*.json
+            quantum-swarm-v3-scratch/.benchmarks/**/.state/*.md
+            quantum-swarm-v3-scratch/.benchmarks/**/benchmark.log
+          retention-days: 14

@@ -1,0 +1,9 @@
+# QSM LangChain/DeepAgents harness dependencies.
+#
+# Install from the pulled local checkout so QSM tests the same source tree
+# inspected in docs/DEEPAGENTS_NODE_LOOP.md.
+-e /Users/nexus/Downloads/NemoClaw/deepagents_study/libs/deepagents
+
+# 9Router is OpenAI-compatible, so the runner can use LangChain's OpenAI chat
+# integration pointed at QSM_9ROUTER_URL.
+langchain-openai>=1.2.0,<2.0.0

@@ -1,0 +1,7 @@
+{
+  "id": "beta",
+  "role": "implementation",
+  "provider": "9router",
+  "model": "llama-3.3",
+  "strengths": ["parallel implementation", "fast iteration", "harness execution"]
+}

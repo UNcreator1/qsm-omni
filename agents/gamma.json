@@ -1,0 +1,7 @@
+{
+  "id": "gamma",
+  "role": "audit",
+  "provider": "9router",
+  "model": "grok-2",
+  "strengths": ["adversarial review", "contradiction detection", "collapse safety"]
+}
