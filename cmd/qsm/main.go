@@ -305,6 +305,12 @@ func run(args []string) {
 		len(hypotheses), count, len(positions), verdict.Winner.PositionID, verdict.Approved)
 	fmt.Printf("Nodes: requested=%d started=%d succeeded=%d failed=%d parallel=%d accounted=%v\n",
 		report.RequestedNodes, report.StartedNodes, report.SucceededNodes, report.FailedNodes, report.Concurrency, report.AllNodesAccounted)
+	for _, result := range report.Results {
+		if result.BuildPassed && result.TestPassed && result.LintPassed && result.Error == "" {
+			continue
+		}
+		fmt.Printf("Node failure: %s error=%s\n", result.PositionID, truncateStatusError(resultFailureSummary(result), 480))
+	}
 	fmt.Printf("Capacity: %s\n", capPlan.Summary())
 	fmt.Printf("Harness: %s\n", rt.HarnessMode)
 	fmt.Printf("Build health: tracked_models=%d\n", len(buildHealth.Models))
@@ -3021,6 +3027,19 @@ func fileContainsCheck(name, path, token string) ContributorSmokeCheck {
 func containsFile(path, token string) bool {
 	data, err := os.ReadFile(path)
 	return err == nil && strings.Contains(string(data), token)
+}
+
+func resultFailureSummary(result swarm.BranchResult) string {
+	if strings.TrimSpace(result.Error) != "" {
+		return result.Error
+	}
+	if result.TestReport != nil && len(result.TestReport.Errors) > 0 {
+		return strings.Join(result.TestReport.Errors, "; ")
+	}
+	if result.Verification != nil && len(result.Verification.Errors) > 0 {
+		return strings.Join(result.Verification.Errors, "; ")
+	}
+	return fmt.Sprintf("build=%v test=%v lint=%v", result.BuildPassed, result.TestPassed, result.LintPassed)
 }
 
 func contributorSmokeMarkdown(report ContributorSmokeReport) string {

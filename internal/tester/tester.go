@@ -361,9 +361,13 @@ func autoCommands(ctx context.Context, room, product string, d detector, reportD
 		if py == "" {
 			report.Errors = append(report.Errors, "python files detected but python executable is not available")
 		} else {
-			commands = append(commands, commandSpec{name: "python compileall", kind: "lint", cmd: []string{py, "-m", "compileall", "-q", "product"}, cwd: room, timeout: 60 * time.Second, origin: "qsm"})
+			if script, err := writePythonSyntaxScript(reportDir); err == nil {
+				commands = append(commands, commandSpec{name: "python syntax", kind: "lint", cmd: []string{py, script, product}, cwd: room, timeout: 60 * time.Second, origin: "qsm"})
+			} else {
+				report.Errors = append(report.Errors, "failed to create Python syntax checker: "+err.Error())
+			}
 			if d.hasPyTests {
-				commands = append(commands, commandSpec{name: "pytest", kind: "test", cmd: []string{py, "-m", "pytest", "-q"}, cwd: product, timeout: 90 * time.Second, parser: "pytest", origin: "qsm"})
+				commands = append(commands, commandSpec{name: "pytest", kind: "test", cmd: []string{py, "-m", "pytest", "-q", "-p", "no:cacheprovider"}, cwd: product, timeout: 90 * time.Second, parser: "pytest", origin: "qsm"})
 			}
 			if d.hasReqs {
 				if _, err := exec.LookPath("pip-audit"); err == nil {
@@ -513,7 +517,7 @@ func runCommand(parent context.Context, room, logDir, tracePath string, index in
 		CWD:        spec.cwd,
 		Room:       room,
 		Timeout:    spec.timeout,
-		Env:        []string{"CI=1", "NO_COLOR=1"},
+		Env:        []string{"CI=1", "NO_COLOR=1", "PYTHONDONTWRITEBYTECODE=1", "PYTEST_ADDOPTS=-p no:cacheprovider"},
 		StdoutPath: stdoutPath,
 		StderrPath: stderrPath,
 	})
@@ -931,6 +935,42 @@ function startServer(root) {
   console.error(error && error.stack ? error.stack : String(error));
   process.exit(1);
 });
+`
+	if err := os.WriteFile(path, []byte(script), 0644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func writePythonSyntaxScript(reportDir string) (string, error) {
+	hiddenDir := filepath.Join(reportDir, "hidden")
+	if err := os.MkdirAll(hiddenDir, 0755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(hiddenDir, "python_syntax_check.py")
+	script := `from __future__ import annotations
+
+import pathlib
+import sys
+
+
+def main() -> int:
+    root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+    failed = False
+    for source in sorted(root.rglob("*.py")):
+        if "__pycache__" in source.parts or ".qsm_test" in source.parts:
+            continue
+        rel = source.relative_to(root)
+        try:
+            compile(source.read_text(encoding="utf-8"), str(rel), "exec")
+        except Exception as exc:
+            print(f"{rel}: {exc}", file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 `
 	if err := os.WriteFile(path, []byte(script), 0644); err != nil {
 		return "", err

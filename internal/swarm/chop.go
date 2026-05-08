@@ -480,8 +480,8 @@ func writePythonPackageProduct(dir string, p Position) error {
 		"pyproject.toml":               `[project]` + "\n" + `name = "qsm_textstats"` + "\n" + `version = "0.1.0"` + "\n",
 		"textstats.py":                 pythonPackageCode(),
 		"tests/test_textstats.py":      pythonPackageTests(),
-		"test_manifest.json":           `{"schema":"qsm.test_manifest.v1","product_type":"python","commands":[{"name":"pytest package tests","kind":"test","cmd":["python3","-m","pytest","-q"],"timeout_seconds":60}]}`,
-		"qsm_project_manifest.v1.json": simulatedManifestJSON(dir, "python-package", []string{"textstats.py", "tests/test_textstats.py", "pyproject.toml", "test_manifest.json"}, []string{"python3 -m pytest -q"}, []string{"python3", "pytest"}, "textstats.py"),
+		"test_manifest.json":           `{"schema":"qsm.test_manifest.v1","product_type":"python","commands":[{"name":"pytest package tests","kind":"test","cmd":["python3","-m","pytest","-q","-p","no:cacheprovider"],"timeout_seconds":60}]}`,
+		"qsm_project_manifest.v1.json": simulatedManifestJSON(dir, "python-package", []string{"textstats.py", "tests/test_textstats.py", "pyproject.toml", "test_manifest.json"}, []string{"python3 -m pytest -q -p no:cacheprovider"}, []string{"python3", "pytest"}, "textstats.py"),
 	}
 	return writeProductFiles(dir, files)
 }

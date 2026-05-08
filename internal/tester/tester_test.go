@@ -253,6 +253,42 @@ func TestPythonExecutableForDockerRunnerUsesContainerPath(t *testing.T) {
 	}
 }
 
+func TestPythonAutoCommandsAvoidCompileallWritesInDocker(t *testing.T) {
+	room := t.TempDir()
+	product := filepath.Join(room, "product")
+	if err := os.MkdirAll(filepath.Join(product, "tests"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(product, "module.py"), []byte("def ok():\n    return True\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(product, "tests", "test_module.py"), []byte("from module import ok\n\ndef test_ok():\n    assert ok()\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := detect(product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := &TestReport{}
+	commands := autoCommands(context.Background(), room, product, d, filepath.Join(room, ".qsm_test"), report, sandbox.DockerRunner{})
+	var sawSyntax, sawPytest bool
+	for _, command := range commands {
+		joined := strings.Join(command.cmd, " ")
+		if strings.Contains(joined, "compileall") {
+			t.Fatalf("Docker Python checks must not write pycache via compileall: %#v", command.cmd)
+		}
+		if command.name == "python syntax" {
+			sawSyntax = true
+		}
+		if command.name == "pytest" && strings.Contains(joined, "no:cacheprovider") {
+			sawPytest = true
+		}
+	}
+	if !sawSyntax || !sawPytest {
+		t.Fatalf("expected no-write syntax and cache-disabled pytest commands, got %#v", commands)
+	}
+}
+
 func TestVerifyRejectsManifestCommandOutsideRoom(t *testing.T) {
 	room := t.TempDir()
 	product := filepath.Join(room, "product")
