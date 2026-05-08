@@ -46,7 +46,8 @@ def main() -> int:
                 f"collapse={task.get('collapse_approved')} trace={task.get('trace_passed')} "
                 f"manifest={task.get('manifest_passed')} "
                 f"cachewiki={task.get('lake_cache_citation_coverage')} "
-                f"force={task.get('force_average')} error={task.get('error')}"
+                f"force={task.get('force_average')} error={task.get('error')} "
+                f"log_tail={(task.get('log_tail') or '')[-1200:]}"
             )
             emit_error(f"QSM failed {task.get('name')}", msg)
     return 0

@@ -2311,7 +2311,14 @@ jobs:
           ./qsm contributor-smoke
       - name: Run omni benchmark
         working-directory: %s
-        run: ./qsm benchmark -suite omni-contract -sandbox docker -image qsm-omni-sandbox:local -positions 2 -parallel 2
+        run: |
+          ./qsm benchmark -suite omni-contract -sandbox docker -image qsm-omni-sandbox:local -positions 2 -parallel 2 || {
+            python3 scripts/emit_benchmark_annotations.py .state/benchmark_report.json || true
+            echo "::group::benchmark_report"
+            cat .state/benchmark_report.md || true
+            echo "::endgroup::"
+            exit 1
+          }
       - name: Run self improvement
         working-directory: %s
         run: |
@@ -3104,6 +3111,9 @@ func benchmarkCmd(args []string) {
 		return
 	}
 	fmt.Print(benchmarkMarkdown(report))
+	if report.FailedTasks > 0 {
+		os.Exit(1)
+	}
 }
 
 func runBenchmarkSuite(root, suite, harnessMode, sandboxBackend, positions, parallel string, timeout time.Duration, retries int, sharedCache, routeHealth, deepSeekFallback, longRun bool) BenchmarkReport {

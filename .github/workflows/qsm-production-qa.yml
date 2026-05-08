@@ -39,7 +39,14 @@ jobs:
           ./qsm recovery -sandbox docker
           ./qsm contributor-smoke
       - name: Run omni benchmark
-        run: ./qsm benchmark -suite omni-contract -sandbox docker -image qsm-omni-sandbox:local -positions 2 -parallel 2
+        run: |
+          ./qsm benchmark -suite omni-contract -sandbox docker -image qsm-omni-sandbox:local -positions 2 -parallel 2 || {
+            python3 scripts/emit_benchmark_annotations.py .state/benchmark_report.json || true
+            echo "::group::benchmark_report"
+            cat .state/benchmark_report.md || true
+            echo "::endgroup::"
+            exit 1
+          }
       - name: Run self improvement
         run: |
           ./qsm self-improve -suite omni-contract -cycles 3 -sandbox docker -image qsm-omni-sandbox:local || {
