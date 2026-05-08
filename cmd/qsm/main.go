@@ -3113,7 +3113,7 @@ func runBenchmarkSuite(root, suite, harnessMode, sandboxBackend, positions, para
 	must(err)
 	tasks := benchmarkTasks(suite)
 	start := time.Now()
-	runRoot := filepath.Join(rootAbs, ".benchmarks", time.Now().UTC().Format("20060102T150405Z")+"-"+sanitizeFileName(suite))
+	runRoot := filepath.Join(rootAbs, ".benchmarks", time.Now().UTC().Format("20060102T150405.000000000Z")+"-"+sanitizeFileName(suite))
 	must(os.MkdirAll(runRoot, 0755))
 	out := BenchmarkReport{
 		Schema:      "qsm.benchmark_report.v1",
@@ -3129,6 +3129,7 @@ func runBenchmarkSuite(root, suite, harnessMode, sandboxBackend, positions, para
 	}
 	for i, task := range tasks {
 		taskRoot := filepath.Join(runRoot, fmt.Sprintf("%02d-%s", i+1, sanitizeFileName(task.Name)))
+		_ = os.RemoveAll(taskRoot)
 		must(prepareBenchmarkRoot(rootAbs, taskRoot))
 		logPath := filepath.Join(taskRoot, "benchmark.log")
 		args := []string{
