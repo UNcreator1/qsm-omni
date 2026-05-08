@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,6 +50,8 @@ func main() {
 		doctor(os.Args[2:])
 	case "harness-readiness":
 		harnessReadinessCmd(os.Args[2:])
+	case "real-harness-smoke":
+		realHarnessSmokeCmd(os.Args[2:])
 	case "route-health":
 		routeHealth(os.Args[2:])
 	case "deploy":
@@ -124,7 +127,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Println("qsm <capacity|doctor|harness-readiness|route-health|deploy|autorun|autorun-plist|plan|council|stop|run|status|lake-score|lake-maintain|lake-promote|force-score|cost|sandbox|trace|benchmark|self-improve|cost-budget|coverage|flake|mutation|ci-release|ci-bootstrap|ops-readiness|compliance|stress|recovery|contributor-smoke|qa|production-gap|synthesize|hydrate|wiki> [flags]")
+	fmt.Println("qsm <capacity|doctor|harness-readiness|real-harness-smoke|route-health|deploy|autorun|autorun-plist|plan|council|stop|run|status|lake-score|lake-maintain|lake-promote|force-score|cost|sandbox|trace|benchmark|self-improve|cost-budget|coverage|flake|mutation|ci-release|ci-bootstrap|ops-readiness|compliance|stress|recovery|contributor-smoke|qa|production-gap|synthesize|hydrate|wiki> [flags]")
 }
 
 func run(args []string) {
@@ -738,6 +741,215 @@ func harnessReadinessMarkdown(report HarnessReadinessReport) string {
 			fmt.Fprintf(&b, "| %s | %v | %s |\n", check.Name, check.OK, markdownTableCell(check.Detail))
 		}
 		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+type RealHarnessSmokeReport struct {
+	Schema             string                       `json:"schema"`
+	Root               string                       `json:"root"`
+	HarnessMode        string                       `json:"harness_mode"`
+	SandboxBackend     string                       `json:"sandbox_backend"`
+	Image              string                       `json:"image,omitempty"`
+	Passed             bool                         `json:"passed"`
+	Readiness          HarnessReadinessReport       `json:"readiness"`
+	RouteHealth        []qruntime.RouteHealthResult `json:"route_health,omitempty"`
+	HealthyRoutes      int                          `json:"healthy_routes"`
+	TotalRoutes        int                          `json:"total_routes"`
+	ExecutionAttempted bool                         `json:"execution_attempted"`
+	ExecutionExitCode  int                          `json:"execution_exit_code,omitempty"`
+	RunSucceeded       bool                         `json:"run_succeeded"`
+	RunReportPath      string                       `json:"run_report_path,omitempty"`
+	StdoutPath         string                       `json:"stdout_path,omitempty"`
+	StderrPath         string                       `json:"stderr_path,omitempty"`
+	Errors             []string                     `json:"errors,omitempty"`
+	CreatedAt          time.Time                    `json:"created_at"`
+}
+
+func realHarnessSmokeCmd(args []string) {
+	fs := flag.NewFlagSet("real-harness-smoke", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace root")
+	harnessMode := fs.String("harness", "langchain", "real harness mode: opencode or langchain")
+	sandboxBackend := fs.String("sandbox", getenvDefault("QSM_TEST_SANDBOX", sandbox.BackendDocker), "sandbox backend for QSM-owned verification: room, docker, or auto")
+	image := fs.String("image", getenvDefault("QSM_SANDBOX_DOCKER_IMAGE", ""), "Docker image for QSM-owned verification commands")
+	request := fs.String("request", "product_kind=cli-tool. Live harness smoke: build a tiny CLI product with tests, qsm_project_manifest.v1.json, cache_item/wiki_item citations, and traceable terminal verification.", "live harness smoke request")
+	positions := fs.String("positions", "1", "positions for live harness smoke")
+	parallel := fs.String("parallel", "1", "parallelism for live harness smoke")
+	modelsFlag := fs.String("models", getenvDefault("QSM_ROUTE_HEALTH_MODELS", "auto"), "route-health model pool: auto, free, all, or comma-separated routes")
+	limit := fs.Int("limit", envInt("QSM_ROUTE_HEALTH_LIMIT", 8), "max discovered route-health models to probe")
+	routeTimeout := fs.Duration("route-timeout", 30*time.Second, "per-route probe timeout")
+	runTimeout := fs.Duration("timeout", 20*time.Minute, "live harness run timeout")
+	execute := fs.Bool("execute", true, "execute the live one-node harness run after readiness and route-health pass")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	_ = fs.Parse(args)
+
+	report := runRealHarnessSmoke(*root, *harnessMode, sandbox.NormalizeBackend(*sandboxBackend), *image, *request, *positions, *parallel, *modelsFlag, *limit, *routeTimeout, *runTimeout, *execute)
+	must(writeJSON(filepath.Join(*root, ".state", "real_harness_smoke_report.json"), report))
+	must(os.WriteFile(filepath.Join(*root, ".state", "real_harness_smoke_report.md"), []byte(realHarnessSmokeMarkdown(report)), 0644))
+	if *jsonOut {
+		data, err := json.MarshalIndent(report, "", "  ")
+		must(err)
+		fmt.Println(string(data))
+	} else {
+		fmt.Print(realHarnessSmokeMarkdown(report))
+	}
+	if !report.Passed {
+		os.Exit(1)
+	}
+}
+
+func runRealHarnessSmoke(root, harnessMode, sandboxBackend, image, request, positions, parallel, modelsFlag string, limit int, routeTimeout, runTimeout time.Duration, execute bool) RealHarnessSmokeReport {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		rootAbs = root
+	}
+	report := RealHarnessSmokeReport{
+		Schema:         "qsm.real_harness_smoke_report.v1",
+		Root:           rootAbs,
+		HarnessMode:    strings.ToLower(strings.TrimSpace(harnessMode)),
+		SandboxBackend: sandbox.NormalizeBackend(sandboxBackend),
+		Image:          strings.TrimSpace(image),
+		CreatedAt:      time.Now().UTC(),
+	}
+	if report.HarnessMode != string(qruntime.HarnessOpenCode) && report.HarnessMode != string(qruntime.HarnessLangChain) {
+		report.Errors = append(report.Errors, "real harness smoke supports only opencode or langchain")
+		return report
+	}
+	if report.SandboxBackend == sandbox.BackendRoom {
+		report.Errors = append(report.Errors, "real harness smoke requires docker or auto sandbox evidence; room is alpha-only")
+	}
+
+	report.Readiness = buildHarnessReadinessReport(rootAbs, report.HarnessMode)
+	if !report.Readiness.Passed {
+		report.Errors = append(report.Errors, "real harness readiness failed")
+		return report
+	}
+
+	rt := qruntime.Load(rootAbs, qruntime.HarnessMode(report.HarnessMode))
+	models := routeHealthModelsFromFlag(modelsFlag, defaultAgents(), rt, limit)
+	report.RouteHealth = qruntime.ProbeRouteHealth(context.Background(), rt, models, routeTimeout)
+	report.HealthyRoutes = countHealthyRoutes(report.RouteHealth)
+	report.TotalRoutes = len(report.RouteHealth)
+	if report.TotalRoutes == 0 {
+		report.Errors = append(report.Errors, "route-health did not select any models")
+		return report
+	}
+	if report.HealthyRoutes == 0 {
+		report.Errors = append(report.Errors, "route-health found no healthy real model routes")
+		return report
+	}
+	must(writeRouteHealthState(rootAbs, rt, rt.NineRouterURL, report.RouteHealth, false, "", buildHealthForModels(resultModels(report.RouteHealth), loadBuildHealthState(rootAbs).Models)))
+
+	if !execute {
+		report.Passed = len(report.Errors) == 0
+		return report
+	}
+	report.ExecutionAttempted = true
+	stateDir := filepath.Join(rootAbs, ".state", "real_harness_smoke")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		report.Errors = append(report.Errors, err.Error())
+		return report
+	}
+	report.StdoutPath = filepath.Join(stateDir, report.HarnessMode+".stdout.log")
+	report.StderrPath = filepath.Join(stateDir, report.HarnessMode+".stderr.log")
+	exe, err := os.Executable()
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+		return report
+	}
+	runArgs := []string{
+		"run",
+		"-root", rootAbs,
+		"-request", request,
+		"-harness", report.HarnessMode,
+		"-positions", positions,
+		"-parallel", parallel,
+		"-sandbox", report.SandboxBackend,
+		"-shared-cache=true",
+		"-route-health=true",
+		"-route-health-models", modelsFlag,
+		"-timeout", runTimeout.String(),
+		"-retries", "0",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), runTimeout+2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, runArgs...)
+	cmd.Dir = rootAbs
+	cmd.Env = append(os.Environ(), "QSM_SHARED_CACHE=1", "QSM_ROUTE_HEALTH=1")
+	if report.Image != "" {
+		cmd.Env = append(cmd.Env, "QSM_SANDBOX_DOCKER_IMAGE="+report.Image)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	_ = os.WriteFile(report.StdoutPath, stdout.Bytes(), 0644)
+	_ = os.WriteFile(report.StderrPath, stderr.Bytes(), 0644)
+	if err != nil {
+		report.ExecutionExitCode = commandExitCode(err)
+		report.Errors = append(report.Errors, fmt.Sprintf("live harness run failed: %s", err.Error()))
+		return report
+	}
+	report.RunReportPath = filepath.Join(rootAbs, ".state", "run_report.json")
+	var runReport swarm.RunReport
+	if err := readJSON(report.RunReportPath, &runReport); err != nil {
+		report.Errors = append(report.Errors, "live harness run did not write .state/run_report.json")
+		return report
+	}
+	report.RunSucceeded = runReport.HarnessMode == report.HarnessMode && runReport.SucceededNodes > 0 && runReport.AllNodesAccounted
+	if !report.RunSucceeded {
+		report.Errors = append(report.Errors, fmt.Sprintf("live harness run did not produce an accounted successful node: harness=%s succeeded=%d accounted=%v", runReport.HarnessMode, runReport.SucceededNodes, runReport.AllNodesAccounted))
+	}
+	report.Passed = len(report.Errors) == 0
+	return report
+}
+
+func commandExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
+func realHarnessSmokeMarkdown(report RealHarnessSmokeReport) string {
+	var b strings.Builder
+	b.WriteString("# QSM Real Harness Smoke Report\n\n")
+	fmt.Fprintf(&b, "- Passed: `%v`\n", report.Passed)
+	fmt.Fprintf(&b, "- Harness: `%s`\n", report.HarnessMode)
+	fmt.Fprintf(&b, "- Sandbox: `%s`\n", report.SandboxBackend)
+	if report.Image != "" {
+		fmt.Fprintf(&b, "- Image: `%s`\n", report.Image)
+	}
+	fmt.Fprintf(&b, "- Readiness passed: `%v`\n", report.Readiness.Passed)
+	fmt.Fprintf(&b, "- Healthy routes: `%d/%d`\n", report.HealthyRoutes, report.TotalRoutes)
+	fmt.Fprintf(&b, "- Execution attempted: `%v`\n", report.ExecutionAttempted)
+	fmt.Fprintf(&b, "- Run succeeded: `%v`\n", report.RunSucceeded)
+	if report.RunReportPath != "" {
+		fmt.Fprintf(&b, "- Run report: `%s`\n", report.RunReportPath)
+	}
+	if report.StdoutPath != "" {
+		fmt.Fprintf(&b, "- Stdout: `%s`\n", report.StdoutPath)
+	}
+	if report.StderrPath != "" {
+		fmt.Fprintf(&b, "- Stderr: `%s`\n", report.StderrPath)
+	}
+	if len(report.RouteHealth) > 0 {
+		b.WriteString("\n## Route Health\n\n")
+		b.WriteString("| Model | OK | Shape | Latency |\n")
+		b.WriteString("| --- | --- | --- | --- |\n")
+		for _, route := range report.RouteHealth {
+			fmt.Fprintf(&b, "| %s | %v | %s | %dms |\n", markdownTableCell(route.Model), route.OK, markdownTableCell(route.ResponseShape), route.LatencyMS)
+		}
+	}
+	if len(report.Errors) > 0 {
+		b.WriteString("\n## Errors\n\n")
+		for _, err := range report.Errors {
+			b.WriteString("- " + err + "\n")
+		}
 	}
 	return b.String()
 }
@@ -2302,15 +2514,16 @@ func ciReleaseMarkdown(report CIReleaseReport) string {
 }
 
 type CIBootstrapReport struct {
-	Schema       string    `json:"schema"`
-	Provider     string    `json:"provider"`
-	RepoRoot     string    `json:"repo_root,omitempty"`
-	WorkDir      string    `json:"work_dir,omitempty"`
-	WorkflowPath string    `json:"workflow_path"`
-	Dockerfile   string    `json:"dockerfile"`
-	Passed       bool      `json:"passed"`
-	Errors       []string  `json:"errors,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	Schema                  string    `json:"schema"`
+	Provider                string    `json:"provider"`
+	RepoRoot                string    `json:"repo_root,omitempty"`
+	WorkDir                 string    `json:"work_dir,omitempty"`
+	WorkflowPath            string    `json:"workflow_path"`
+	RealHarnessWorkflowPath string    `json:"real_harness_workflow_path,omitempty"`
+	Dockerfile              string    `json:"dockerfile"`
+	Passed                  bool      `json:"passed"`
+	Errors                  []string  `json:"errors,omitempty"`
+	CreatedAt               time.Time `json:"created_at"`
 }
 
 func ciBootstrapCmd(args []string) {
@@ -2329,6 +2542,9 @@ func ciBootstrapCmd(args []string) {
 	}
 	if report.Passed {
 		fmt.Printf("CI bootstrap wrote %s\n", report.WorkflowPath)
+		if report.RealHarnessWorkflowPath != "" {
+			fmt.Printf("CI bootstrap wrote %s\n", report.RealHarnessWorkflowPath)
+		}
 	} else {
 		fmt.Printf("CI bootstrap failed: %s\n", strings.Join(report.Errors, "; "))
 		os.Exit(1)
@@ -2361,11 +2577,16 @@ func bootstrapCI(root, provider string) CIBootstrapReport {
 	}
 	report.WorkDir = filepath.ToSlash(workDir)
 	report.WorkflowPath = filepath.Join(repoRoot, ".github", "workflows", "qsm-production-qa.yml")
+	report.RealHarnessWorkflowPath = filepath.Join(repoRoot, ".github", "workflows", "qsm-real-harness-smoke.yml")
 	if err := os.MkdirAll(filepath.Dir(report.WorkflowPath), 0755); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 		return report
 	}
 	if err := os.WriteFile(report.WorkflowPath, []byte(qsmProductionQAWorkflow(report.WorkDir)), 0644); err != nil {
+		report.Errors = append(report.Errors, err.Error())
+		return report
+	}
+	if err := os.WriteFile(report.RealHarnessWorkflowPath, []byte(qsmRealHarnessSmokeWorkflow(report.WorkDir)), 0644); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 		return report
 	}
@@ -2539,6 +2760,101 @@ jobs:
             %s.benchmarks/**
           retention-days: 14
 `, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix)
+}
+
+func qsmRealHarnessSmokeWorkflow(workDir string) string {
+	if strings.TrimSpace(workDir) == "" {
+		workDir = "."
+	}
+	workDir = filepath.ToSlash(workDir)
+	prefix := ""
+	if workDir != "." {
+		prefix = workDir + "/"
+	}
+	return fmt.Sprintf(`name: QSM Real Harness Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      harness:
+        description: "Real harness to smoke test"
+        required: true
+        default: "langchain"
+        type: choice
+        options:
+          - langchain
+          - opencode
+      execute:
+        description: "Run the one-node live harness after readiness and route-health pass"
+        required: true
+        default: true
+        type: boolean
+      runner:
+        description: "GitHub runner label. Use self-hosted when 9Router/OpenCode/local harness paths live on your machine."
+        required: true
+        default: "ubuntu-latest"
+        type: string
+
+jobs:
+  real-harness-smoke:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    env:
+      QSM_ALLOW_LOCAL_RELEASE_EVIDENCE: "0"
+      QSM_SANDBOX_DOCKER_IMAGE: qsm-omni-sandbox:local
+      QSM_SHARED_CACHE: "1"
+      QSM_9ROUTER_URL: ${{ secrets.QSM_9ROUTER_URL }}
+      QSM_9ROUTER_API_KEY: ${{ secrets.QSM_9ROUTER_API_KEY }}
+      QSM_OPENCODE_PATH: ${{ secrets.QSM_OPENCODE_PATH }}
+      QSM_OPENCODE_CONFIG: ${{ secrets.QSM_OPENCODE_CONFIG }}
+      QSM_LANGCHAIN_RUNNER: ${{ secrets.QSM_LANGCHAIN_RUNNER }}
+      QSM_DEEPAGENTS_ROOT: ${{ secrets.QSM_DEEPAGENTS_ROOT }}
+      QSM_OPENHARNESS_PATH: ${{ secrets.QSM_OPENHARNESS_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build QSM
+        working-directory: %s
+        run: |
+          go test ./...
+          go build -o qsm ./cmd/qsm
+      - name: Build omni sandbox image
+        working-directory: %s
+        run: docker build -t qsm-omni-sandbox:local -f deploy/qsm-omni-sandbox.Dockerfile .
+      - name: Probe sandbox
+        working-directory: %s
+        run: ./qsm sandbox -probe -backend docker -image qsm-omni-sandbox:local -profile omni
+      - name: Real harness smoke
+        working-directory: %s
+        run: |
+          ./qsm real-harness-smoke \
+            -harness "${{ inputs.harness }}" \
+            -sandbox docker \
+            -image qsm-omni-sandbox:local \
+            -positions 1 \
+            -parallel 1 \
+            -execute=${{ inputs.execute }} \
+            -json
+      - name: Upload live harness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsm-real-harness-smoke-evidence
+          include-hidden-files: true
+          path: |
+            %s.state/**
+            %s.rooms/**
+          retention-days: 14
+`, workDir, workDir, workDir, workDir, prefix, prefix)
 }
 
 type StressReport struct {

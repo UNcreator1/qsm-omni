@@ -98,6 +98,51 @@ func TestRouteHealthAutoDiscoversLiveFreeRouterModels(t *testing.T) {
 	}
 }
 
+func TestRealHarnessSmokeCanPassReadinessAndRouteHealthWithoutExecution(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{".lake", ".rooms", filepath.Join("internal", "wiki")} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wikiPath := filepath.Join(root, "internal", "wiki", "wiki.md")
+	if err := os.WriteFile(wikiPath, []byte("# wiki\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	opencodePath := filepath.Join(root, "opencode")
+	if err := os.WriteFile(opencodePath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	opencodeConfig := filepath.Join(root, "opencode.json")
+	if err := os.WriteFile(opencodeConfig, []byte(`{"provider":{}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"test-model","owned_by":"test"}]}`))
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	t.Setenv("QSM_9ROUTER_URL", server.URL+"/v1")
+	t.Setenv("QSM_9ROUTER_API_KEY", "test-key")
+	t.Setenv("QSM_OPENCODE_PATH", opencodePath)
+	t.Setenv("QSM_OPENCODE_CONFIG", opencodeConfig)
+	t.Setenv("QSM_OPENHARNESS_PATH", root)
+	report := runRealHarnessSmoke(root, "opencode", "docker", "qsm-omni-sandbox:local", "build smoke", "1", "1", "test-model", 1, time.Second, time.Second, false)
+	if !report.Passed {
+		t.Fatalf("expected smoke to pass without execution: %#v", report)
+	}
+	if !report.Readiness.Passed || report.HealthyRoutes != 1 || report.ExecutionAttempted {
+		t.Fatalf("unexpected smoke evidence: %#v", report)
+	}
+}
+
 func TestHealthyAgentsPreferStableBuildHealthRoutes(t *testing.T) {
 	results := []qruntime.RouteHealthResult{
 		{Model: "wombo", OK: true, ContentOK: true, LatencyMS: 1000},

@@ -28,19 +28,24 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build QSM
+        working-directory: .
         run: |
           go test ./...
           go build -o qsm ./cmd/qsm
       - name: Build omni sandbox image
+        working-directory: .
         run: docker build -t qsm-omni-sandbox:local -f deploy/qsm-omni-sandbox.Dockerfile .
       - name: Probe sandbox
+        working-directory: .
         run: ./qsm sandbox -probe -backend docker -image qsm-omni-sandbox:local -profile omni
       - name: Stress and recovery evidence
+        working-directory: .
         run: |
           ./qsm stress -sandbox docker -nodes 12 -parallel 6 -large-repo-files 1000
           ./qsm recovery -sandbox docker
           ./qsm contributor-smoke
       - name: Run omni benchmark
+        working-directory: .
         run: |
           ./qsm benchmark -suite omni-contract -sandbox docker -image qsm-omni-sandbox:local -positions 2 -parallel 2 || {
             python3 scripts/emit_benchmark_annotations.py .state/benchmark_report.json || true
@@ -50,6 +55,7 @@ jobs:
             exit 1
           }
       - name: Run self improvement
+        working-directory: .
         run: |
           ./qsm self-improve -suite omni-contract -cycles 3 -sandbox docker -image qsm-omni-sandbox:local || {
             python3 scripts/emit_self_improve_annotations.py .state/self_improvement_report.json || true
@@ -62,6 +68,7 @@ jobs:
             exit 1
           }
       - name: Autonomy evidence
+        working-directory: .
         run: |
           ./qsm autorun-plist \
             -request "product_kind=cli-tool. Build an autonomous QA smoke product with tests and cache/wiki citations." \
@@ -81,6 +88,7 @@ jobs:
             -deploy-router=false \
             -shared-cache=true
       - name: Production root run
+        working-directory: .
         run: |
           ./qsm run \
             -request "product_kind=node-fullstack. Build a production QA root product with tests, manifest, cache/wiki citations, traceable execution, and delivery evidence." \
@@ -91,12 +99,14 @@ jobs:
             -shared-cache=true \
             -retries 1
       - name: Local evidence reports
+        working-directory: .
         run: |
           ./qsm production-gap || true
           ./qsm harness-readiness -harness all || true
           ./qsm ops-readiness
           ./qsm compliance -sandbox docker -image qsm-omni-sandbox:local
       - name: Production QA
+        working-directory: .
         run: |
           ./qsm qa -profile production -sandbox docker -image qsm-omni-sandbox:local -refresh=true || {
             python3 scripts/emit_qa_annotations.py .state/qa_report.json || true
@@ -109,6 +119,7 @@ jobs:
             exit 1
           }
       - name: Omni alpha QA
+        working-directory: .
         run: |
           ./qsm qa -profile omni-alpha -sandbox docker -image qsm-omni-sandbox:local -refresh=true || {
             python3 scripts/emit_qa_annotations.py .state/qa_report.json || true
@@ -118,6 +129,7 @@ jobs:
             exit 1
           }
       - name: Production gap after Omni alpha
+        working-directory: .
         if: always()
         run: ./qsm production-gap
       - name: Upload QSM evidence

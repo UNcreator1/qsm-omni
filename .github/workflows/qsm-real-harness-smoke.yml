@@ -1,0 +1,83 @@
+name: QSM Real Harness Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      harness:
+        description: "Real harness to smoke test"
+        required: true
+        default: "langchain"
+        type: choice
+        options:
+          - langchain
+          - opencode
+      execute:
+        description: "Run the one-node live harness after readiness and route-health pass"
+        required: true
+        default: true
+        type: boolean
+      runner:
+        description: "GitHub runner label. Use self-hosted when 9Router/OpenCode/local harness paths live on your machine."
+        required: true
+        default: "ubuntu-latest"
+        type: string
+
+jobs:
+  real-harness-smoke:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    env:
+      QSM_ALLOW_LOCAL_RELEASE_EVIDENCE: "0"
+      QSM_SANDBOX_DOCKER_IMAGE: qsm-omni-sandbox:local
+      QSM_SHARED_CACHE: "1"
+      QSM_9ROUTER_URL: ${{ secrets.QSM_9ROUTER_URL }}
+      QSM_9ROUTER_API_KEY: ${{ secrets.QSM_9ROUTER_API_KEY }}
+      QSM_OPENCODE_PATH: ${{ secrets.QSM_OPENCODE_PATH }}
+      QSM_OPENCODE_CONFIG: ${{ secrets.QSM_OPENCODE_CONFIG }}
+      QSM_LANGCHAIN_RUNNER: ${{ secrets.QSM_LANGCHAIN_RUNNER }}
+      QSM_DEEPAGENTS_ROOT: ${{ secrets.QSM_DEEPAGENTS_ROOT }}
+      QSM_OPENHARNESS_PATH: ${{ secrets.QSM_OPENHARNESS_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build QSM
+        working-directory: .
+        run: |
+          go test ./...
+          go build -o qsm ./cmd/qsm
+      - name: Build omni sandbox image
+        working-directory: .
+        run: docker build -t qsm-omni-sandbox:local -f deploy/qsm-omni-sandbox.Dockerfile .
+      - name: Probe sandbox
+        working-directory: .
+        run: ./qsm sandbox -probe -backend docker -image qsm-omni-sandbox:local -profile omni
+      - name: Real harness smoke
+        working-directory: .
+        run: |
+          ./qsm real-harness-smoke \
+            -harness "${{ inputs.harness }}" \
+            -sandbox docker \
+            -image qsm-omni-sandbox:local \
+            -positions 1 \
+            -parallel 1 \
+            -execute=${{ inputs.execute }} \
+            -json
+      - name: Upload live harness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsm-real-harness-smoke-evidence
+          include-hidden-files: true
+          path: |
+            .state/**
+            .rooms/**
+          retention-days: 14

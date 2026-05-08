@@ -48,6 +48,7 @@ Run #17 made `omni-alpha` blocking rather than advisory. The workflow now fails 
 - Node fullstack products are classified as Node/fullstack when `package.json` and `index.html` coexist.
 - Mutation testing skips QA, smoke, coverage, test, and spec files before mutating implementation code.
 - The workflow writes a production-gap report after the blocking Omni Alpha QA step.
+- `qsm harness-readiness` and `qsm real-harness-smoke` now provide the first separated live-agent evidence lane without weakening the simulated contract gate.
 
 ## Honest Claim Boundary
 
@@ -61,8 +62,8 @@ Unsafe claim:
 
 ## Remaining Hardening Beyond Alpha
 
-1. Add real-harness OpenCode/LangChain stress as a blocking suite, not only simulated harness contracts.
-2. Use `qsm harness-readiness -harness all` as the non-blocking evidence producer for live OpenCode/LangChain prerequisites until real harness stress is ready.
+1. Run `.github/workflows/qsm-real-harness-smoke.yml` with real 9Router and harness secrets, starting with `execute=false` readiness/route-health evidence, then `execute=true` one-node live delivery evidence. Use the workflow `runner=self-hosted` input when the real harness paths are local.
+2. Add real-harness OpenCode/LangChain stress as a blocking suite, not only simulated harness contracts.
 3. Add official SWE-bench/Terminal-Bench adapters or clearly named local equivalents with comparable scoring fields.
 4. Add route-health/cost accounting for live provider calls in every real harness path.
 5. Add CodeQL/Semgrep-style static analysis and stronger SBOM/license policy.
