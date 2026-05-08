@@ -648,6 +648,25 @@ func TestApplySimpleMutationSkipsQAFilesAndMutatesImplementation(t *testing.T) {
 	}
 }
 
+func TestHarnessReadinessReportMarksMissingRealHarnessesNotReady(t *testing.T) {
+	root := t.TempDir()
+	report := buildHarnessReadinessReport(root, "all")
+	if report.Passed {
+		t.Fatalf("expected missing real harness prerequisites to fail readiness: %#v", report)
+	}
+	if len(report.Modes) != 2 {
+		t.Fatalf("expected opencode and langchain modes, got %#v", report.Modes)
+	}
+	for _, mode := range report.Modes {
+		if mode.Ready {
+			t.Fatalf("mode should not be ready without wiki/router/key prerequisites: %#v", mode)
+		}
+		if mode.ValidationError == "" {
+			t.Fatalf("expected validation error for missing prerequisites: %#v", mode)
+		}
+	}
+}
+
 func hasQAGate(report QAReport, id, status string) bool {
 	for _, gate := range report.Gates {
 		if gate.ID == id && gate.Status == status {

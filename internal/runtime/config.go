@@ -181,6 +181,13 @@ func defaultPython(root string) string {
 }
 
 func fileCheck(name, path string) Check {
+	if path != "" && !strings.ContainsAny(path, `/\`) {
+		resolved, err := exec.LookPath(path)
+		if err != nil {
+			return Check{Name: name, OK: false, Detail: path + " missing from PATH"}
+		}
+		return Check{Name: name, OK: true, Detail: resolved}
+	}
 	_, err := os.Stat(path)
 	if err != nil {
 		return Check{Name: name, OK: false, Detail: path + " missing"}

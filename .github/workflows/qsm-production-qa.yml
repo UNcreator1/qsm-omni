@@ -93,6 +93,7 @@ jobs:
       - name: Local evidence reports
         run: |
           ./qsm production-gap || true
+          ./qsm harness-readiness -harness all || true
           ./qsm ops-readiness
           ./qsm compliance -sandbox docker -image qsm-omni-sandbox:local
       - name: Production QA

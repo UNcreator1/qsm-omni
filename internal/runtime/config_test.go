@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -37,5 +38,15 @@ func TestDoctorRedactsAPIKey(t *testing.T) {
 		if check.Detail == "secret-token" {
 			t.Fatal("doctor leaked API key")
 		}
+	}
+}
+
+func TestFileCheckResolvesPathExecutable(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go executable not available on PATH")
+	}
+	check := fileCheck("go", "go")
+	if !check.OK || check.Detail == "go" {
+		t.Fatalf("expected PATH executable to resolve, got %#v", check)
 	}
 }

@@ -62,9 +62,10 @@ Unsafe claim:
 ## Remaining Hardening Beyond Alpha
 
 1. Add real-harness OpenCode/LangChain stress as a blocking suite, not only simulated harness contracts.
-2. Add official SWE-bench/Terminal-Bench adapters or clearly named local equivalents with comparable scoring fields.
-3. Add route-health/cost accounting for live provider calls in every real harness path.
-4. Add CodeQL/Semgrep-style static analysis and stronger SBOM/license policy.
-5. Evaluate microVM isolation after Docker maturity.
-6. Add PR automation and approval gates for autonomous merge workflows.
-7. Run repeated 24/7 reliability campaigns and publish trend reports.
+2. Use `qsm harness-readiness -harness all` as the non-blocking evidence producer for live OpenCode/LangChain prerequisites until real harness stress is ready.
+3. Add official SWE-bench/Terminal-Bench adapters or clearly named local equivalents with comparable scoring fields.
+4. Add route-health/cost accounting for live provider calls in every real harness path.
+5. Add CodeQL/Semgrep-style static analysis and stronger SBOM/license policy.
+6. Evaluate microVM isolation after Docker maturity.
+7. Add PR automation and approval gates for autonomous merge workflows.
+8. Run repeated 24/7 reliability campaigns and publish trend reports.

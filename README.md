@@ -22,6 +22,7 @@ The run creates:
 ```bash
 go run ./cmd/qsm capacity
 go run ./cmd/qsm doctor -harness opencode
+go run ./cmd/qsm harness-readiness -root . -harness all
 go run ./cmd/qsm deploy -harness opencode
 go run ./cmd/qsm stop
 go run ./cmd/qsm status
@@ -64,6 +65,7 @@ Evidence producers write the production gate inputs directly:
 - `qsm stress`, `qsm recovery`, and `qsm contributor-smoke` prove concurrent command execution, failure-capture/recovery, and new-contributor build/test readiness.
 - `qsm ci-bootstrap -provider github` writes the GitHub Actions production QA workflow.
 - `qsm ci-release` records commit/branch/CI/latest-QA evidence.
+- `qsm harness-readiness` records live OpenCode/LangChain prerequisite and 9Router readiness evidence without turning simulated contract success into a live-agent claim.
 - `qsm ops-readiness` validates CI artifact retention, launchd/autonomy evidence, approval-gate runbook coverage, and truthful production-gap reporting.
 - `qsm compliance` validates Docker sandbox policy and writes a local SBOM/license inventory report.
 - `qsm production-gap` summarizes remaining production and top-tier gaps.

@@ -47,6 +47,8 @@ func main() {
 		showCapacity(os.Args[2:])
 	case "doctor":
 		doctor(os.Args[2:])
+	case "harness-readiness":
+		harnessReadinessCmd(os.Args[2:])
 	case "route-health":
 		routeHealth(os.Args[2:])
 	case "deploy":
@@ -122,7 +124,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Println("qsm <capacity|doctor|route-health|deploy|autorun|autorun-plist|plan|council|stop|run|status|lake-score|lake-maintain|lake-promote|force-score|cost|sandbox|trace|benchmark|self-improve|cost-budget|coverage|flake|mutation|ci-release|ci-bootstrap|ops-readiness|compliance|stress|recovery|contributor-smoke|qa|production-gap|synthesize|hydrate|wiki> [flags]")
+	fmt.Println("qsm <capacity|doctor|harness-readiness|route-health|deploy|autorun|autorun-plist|plan|council|stop|run|status|lake-score|lake-maintain|lake-promote|force-score|cost|sandbox|trace|benchmark|self-improve|cost-budget|coverage|flake|mutation|ci-release|ci-bootstrap|ops-readiness|compliance|stress|recovery|contributor-smoke|qa|production-gap|synthesize|hydrate|wiki> [flags]")
 }
 
 func run(args []string) {
@@ -617,6 +619,127 @@ func doctor(args []string) {
 	} else {
 		fmt.Println("real harness is not ready; use -harness simulated or set the missing runtime pieces")
 	}
+}
+
+type HarnessReadinessReport struct {
+	Schema    string                   `json:"schema"`
+	Root      string                   `json:"root"`
+	Passed    bool                     `json:"passed"`
+	Modes     []HarnessReadinessResult `json:"modes"`
+	CreatedAt time.Time                `json:"created_at"`
+}
+
+type HarnessReadinessResult struct {
+	Mode            string           `json:"mode"`
+	Ready           bool             `json:"ready"`
+	RouterLive      bool             `json:"router_live"`
+	ValidationOK    bool             `json:"validation_ok"`
+	ValidationError string           `json:"validation_error,omitempty"`
+	Checks          []qruntime.Check `json:"checks"`
+}
+
+func harnessReadinessCmd(args []string) {
+	fs := flag.NewFlagSet("harness-readiness", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace root")
+	mode := fs.String("harness", "all", "harness mode to check: opencode, langchain, or all")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	_ = fs.Parse(args)
+
+	report := buildHarnessReadinessReport(*root, *mode)
+	must(writeJSON(filepath.Join(*root, ".state", "harness_readiness_report.json"), report))
+	must(os.WriteFile(filepath.Join(*root, ".state", "harness_readiness_report.md"), []byte(harnessReadinessMarkdown(report)), 0644))
+	if *jsonOut {
+		data, err := json.MarshalIndent(report, "", "  ")
+		must(err)
+		fmt.Println(string(data))
+	} else {
+		fmt.Print(harnessReadinessMarkdown(report))
+	}
+	if !report.Passed {
+		os.Exit(1)
+	}
+}
+
+func buildHarnessReadinessReport(root, mode string) HarnessReadinessReport {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		rootAbs = root
+	}
+	report := HarnessReadinessReport{
+		Schema:    "qsm.harness_readiness_report.v1",
+		Root:      rootAbs,
+		Passed:    true,
+		CreatedAt: time.Now().UTC(),
+	}
+	for _, harnessMode := range harnessReadinessModes(mode) {
+		rt := qruntime.Load(rootAbs, harnessMode)
+		checks := rt.Doctor()
+		result := HarnessReadinessResult{
+			Mode:   string(harnessMode),
+			Checks: checks,
+		}
+		result.RouterLive = checkOK(checks, "9router_live")
+		if err := rt.ValidateForRealHarness(); err != nil {
+			result.ValidationError = err.Error()
+		} else {
+			result.ValidationOK = true
+		}
+		result.Ready = result.ValidationOK && result.RouterLive
+		if !result.Ready {
+			report.Passed = false
+		}
+		report.Modes = append(report.Modes, result)
+	}
+	if len(report.Modes) == 0 {
+		report.Passed = false
+	}
+	return report
+}
+
+func harnessReadinessModes(mode string) []qruntime.HarnessMode {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "opencode":
+		return []qruntime.HarnessMode{qruntime.HarnessOpenCode}
+	case "langchain":
+		return []qruntime.HarnessMode{qruntime.HarnessLangChain}
+	case "all", "":
+		return []qruntime.HarnessMode{qruntime.HarnessOpenCode, qruntime.HarnessLangChain}
+	default:
+		return nil
+	}
+}
+
+func checkOK(checks []qruntime.Check, name string) bool {
+	for _, check := range checks {
+		if check.Name == name {
+			return check.OK
+		}
+	}
+	return false
+}
+
+func harnessReadinessMarkdown(report HarnessReadinessReport) string {
+	var b strings.Builder
+	b.WriteString("# QSM Harness Readiness Report\n\n")
+	fmt.Fprintf(&b, "- Passed: `%v`\n", report.Passed)
+	fmt.Fprintf(&b, "- Root: `%s`\n", report.Root)
+	fmt.Fprintf(&b, "- Created: `%s`\n\n", report.CreatedAt.Format(time.RFC3339))
+	for _, mode := range report.Modes {
+		fmt.Fprintf(&b, "## %s\n\n", mode.Mode)
+		fmt.Fprintf(&b, "- Ready: `%v`\n", mode.Ready)
+		fmt.Fprintf(&b, "- Validation: `%v`\n", mode.ValidationOK)
+		fmt.Fprintf(&b, "- Router live: `%v`\n", mode.RouterLive)
+		if mode.ValidationError != "" {
+			fmt.Fprintf(&b, "- Validation error: `%s`\n", truncateStatusError(mode.ValidationError, 220))
+		}
+		b.WriteString("\n| Check | OK | Detail |\n")
+		b.WriteString("| --- | --- | --- |\n")
+		for _, check := range mode.Checks {
+			fmt.Fprintf(&b, "| %s | %v | %s |\n", check.Name, check.OK, markdownTableCell(check.Detail))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func plan(args []string) {
@@ -2375,6 +2498,7 @@ jobs:
         working-directory: %s
         run: |
           ./qsm production-gap || true
+          ./qsm harness-readiness -harness all || true
           ./qsm ops-readiness
           ./qsm compliance -sandbox docker -image qsm-omni-sandbox:local
       - name: Production QA
