@@ -3748,6 +3748,11 @@ func runQA(root, profile string, refresh bool, sandboxBackend string, image stri
 			_ = writeJSON(filepath.Join(rootAbs, ".state", "mutation_report.json"), mutationReport)
 			_ = os.WriteFile(filepath.Join(rootAbs, ".state", "mutation_report.md"), []byte(qualityMarkdown(mutationReport)), 0644)
 		}
+		if qaProfileRank(profile) >= qaProfileRank("production") {
+			ciReport := buildCIReleaseReportFromQA(rootAbs, out)
+			_ = writeJSON(filepath.Join(rootAbs, ".state", "ci_release_report.json"), ciReport)
+			_ = os.WriteFile(filepath.Join(rootAbs, ".state", "ci_release_report.md"), []byte(ciReleaseMarkdown(ciReport)), 0644)
+		}
 		score, scoreErr := writeForceScoreArtifacts(rootAbs, mustOpen(rootAbs), planReport, runReport, verdict)
 		if scoreErr == nil {
 			_ = score
@@ -3904,12 +3909,6 @@ func runQA(root, profile string, refresh bool, sandboxBackend string, image stri
 		add("lake-citations", "Lake/cache citation coverage", "FAIL", true, fmt.Sprintf("avg=%.1f refresh=%.0f%% writes=%.0f%% citations=%.0f%%", lakeReport.AverageNodeScore, lakeReport.RefreshCoverage*100, lakeReport.CacheWriteCoverage*100, lakeReport.CacheCitationCoverage*100), "Require nodes to consume and cite lake IDs.")
 	} else {
 		add("lake-citations", "Lake/cache citation coverage", "WARN", false, "missing .state/lake_interaction_score.json", "Run qsm lake-score.")
-	}
-
-	if refresh && qaProfileRank(profile) >= qaProfileRank("production") {
-		ciReport := buildCIReleaseReportFromQA(rootAbs, out)
-		_ = writeJSON(filepath.Join(rootAbs, ".state", "ci_release_report.json"), ciReport)
-		_ = os.WriteFile(filepath.Join(rootAbs, ".state", "ci_release_report.md"), []byte(ciReleaseMarkdown(ciReport)), 0644)
 	}
 
 	productionOnlyGates := []struct {
