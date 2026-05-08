@@ -312,13 +312,15 @@ func detect(product string) (detector, error) {
 	sort.Strings(d.jsFiles)
 	sort.Strings(d.testFiles)
 	switch {
-	case d.hasIndex:
-		d.productType = "static-web"
 	case d.hasGo || d.hasGoMod:
 		d.productType = "go"
 	case d.hasPython:
 		d.productType = "python"
-	case d.hasPackage || d.hasJS:
+	case d.hasPackage:
+		d.productType = "node"
+	case d.hasIndex:
+		d.productType = "static-web"
+	case d.hasJS:
 		d.productType = "node"
 	}
 	return d, nil

@@ -225,6 +225,26 @@ func TestVerifyStaticWebFailsBlankCanvas(t *testing.T) {
 	}
 }
 
+func TestDetectNodeFullstackPrefersPackageOverIndex(t *testing.T) {
+	product := t.TempDir()
+	if err := os.WriteFile(filepath.Join(product, "package.json"), []byte(`{"scripts":{"test":"node --test"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(product, "index.html"), []byte("<!doctype html><div id=\"app\"></div>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(product, "server.js"), []byte("module.exports = { ok: true };\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := detect(product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.productType != "node" {
+		t.Fatalf("expected node product for fullstack package+index, got %q", d.productType)
+	}
+}
+
 func TestVerifyPythonCompileFailsSyntaxError(t *testing.T) {
 	if pythonExecutable() == "" {
 		t.Skip("python not available")

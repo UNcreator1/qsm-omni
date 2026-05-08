@@ -4694,27 +4694,22 @@ func copyDir(src, dst string) error {
 }
 
 func applySimpleMutation(product string) (bool, string, error) {
-	var target string
+	var targets []string
 	_ = filepath.WalkDir(product, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || target != "" {
+		if err != nil || entry.IsDir() {
 			return nil
 		}
 		switch strings.ToLower(filepath.Ext(entry.Name())) {
 		case ".js", ".mjs", ".cjs", ".py", ".go":
-			if !strings.HasSuffix(entry.Name(), "_test.go") && !strings.Contains(strings.ToLower(entry.Name()), "test") && !strings.Contains(strings.ToLower(entry.Name()), "spec") {
-				target = path
+			if mutationCandidateFile(entry.Name()) {
+				targets = append(targets, path)
 			}
 		}
 		return nil
 	})
-	if target == "" {
+	if len(targets) == 0 {
 		return false, "", nil
 	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		return false, "", err
-	}
-	text := string(data)
 	replacements := [][2]string{
 		{"===", "!=="},
 		{"!==", "==="},
@@ -4728,20 +4723,40 @@ func applySimpleMutation(product string) (bool, string, error) {
 		{"return true", "return false"},
 		{"return false", "return true"},
 	}
-	for _, pair := range replacements {
-		if strings.Contains(text, pair[0]) {
-			mutated := strings.Replace(text, pair[0], pair[1], 1)
-			if mutated == text {
-				continue
+	for _, target := range targets {
+		data, err := os.ReadFile(target)
+		if err != nil {
+			return false, "", err
+		}
+		text := string(data)
+		for _, pair := range replacements {
+			if strings.Contains(text, pair[0]) {
+				mutated := strings.Replace(text, pair[0], pair[1], 1)
+				if mutated == text {
+					continue
+				}
+				if err := os.WriteFile(target, []byte(mutated), 0644); err != nil {
+					return false, "", err
+				}
+				rel, _ := filepath.Rel(product, target)
+				return true, rel + ": " + strings.TrimSpace(pair[0]) + " -> " + strings.TrimSpace(pair[1]), nil
 			}
-			if err := os.WriteFile(target, []byte(mutated), 0644); err != nil {
-				return false, "", err
-			}
-			rel, _ := filepath.Rel(product, target)
-			return true, rel + ": " + strings.TrimSpace(pair[0]) + " -> " + strings.TrimSpace(pair[1]), nil
 		}
 	}
 	return false, "", nil
+}
+
+func mutationCandidateFile(name string) bool {
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, "_test.go") ||
+		strings.Contains(lower, "test") ||
+		strings.Contains(lower, "spec") ||
+		strings.HasPrefix(lower, "qa_") ||
+		strings.Contains(lower, "smoke") ||
+		strings.Contains(lower, "coverage") {
+		return false
+	}
+	return true
 }
 
 func qualityMarkdown(report QualityReport) string {

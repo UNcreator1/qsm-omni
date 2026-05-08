@@ -621,6 +621,33 @@ func mustWriteQAState(t *testing.T, root string) {
 	}
 }
 
+func TestApplySimpleMutationSkipsQAFilesAndMutatesImplementation(t *testing.T) {
+	product := t.TempDir()
+	if err := os.WriteFile(filepath.Join(product, "qa_frontend_smoke.cjs"), []byte("const smoke = true;\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(product, "server.js"), []byte("function ok(value) { return value === true; }\nmodule.exports = { ok };\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mutated, mutation, err := applySimpleMutation(product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mutated {
+		t.Fatal("expected implementation mutation")
+	}
+	if !strings.Contains(mutation, "server.js") {
+		t.Fatalf("expected server.js mutation, got %q", mutation)
+	}
+	smoke, err := os.ReadFile(filepath.Join(product, "qa_frontend_smoke.cjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(smoke) != "const smoke = true;\n" {
+		t.Fatalf("QA smoke file was mutated: %q", smoke)
+	}
+}
+
 func hasQAGate(report QAReport, id, status string) bool {
 	for _, gate := range report.Gates {
 		if gate.ID == id && gate.Status == status {
