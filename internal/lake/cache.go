@@ -38,6 +38,7 @@ var cacheKindPriority = map[string]int{
 	"constraint":        100,
 	"route_health":      95,
 	"failed_attempt":    90,
+	"failure_lesson":    88,
 	"verified_recipe":   85,
 	"dependency_note":   75,
 	"score_signal":      70,

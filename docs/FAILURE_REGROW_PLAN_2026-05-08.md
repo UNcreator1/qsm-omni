@@ -115,6 +115,21 @@ The report should be safe to generate after a run:
 qsm failure-analyze -root .
 ```
 
+## Phase 1 Deployment Status
+
+Phase 1 is now implemented as the first concrete failure-learning primitive:
+
+- `internal/failure` analyzes `.state/run_report.json`.
+- `qsm failure-analyze -root .` writes `.state/failure_report.json` and `.state/failure_report.md`.
+- Each failed room receives `.rooms/pos-N/failure-evidence/failure.json`.
+- Each failed node is classified into the first deterministic failure enum.
+- Failure lessons are written into `.lake/cache` with kind `failure_lesson`.
+- Full failure records are written into `.lake/failures/<failure-id>.json` and `.lake/failures/index.jsonl`.
+- `qsm qa -refresh=true` now refreshes failure-learning evidence.
+- Production QA includes a `failure-learning` evidence gate.
+
+This does not regrow branches yet. It gives regrowth the evidence substrate it needs.
+
 ## Data Lake Storage
 
 Failures become lake memory, not disposable logs.

@@ -25,6 +25,7 @@ import (
 	"github.com/nemoclaws/quantum-swarm-v3/internal/costing"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/council"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/delivery"
+	"github.com/nemoclaws/quantum-swarm-v3/internal/failure"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/lake"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/lakebrain"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/planning"
@@ -90,6 +91,8 @@ func main() {
 		selfImproveCmd(os.Args[2:])
 	case "cost-budget":
 		costBudgetCmd(os.Args[2:])
+	case "failure-analyze":
+		failureAnalyzeCmd(os.Args[2:])
 	case "coverage":
 		coverageCmd(os.Args[2:])
 	case "flake":
@@ -127,7 +130,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Println("qsm <capacity|doctor|harness-readiness|real-harness-smoke|route-health|deploy|autorun|autorun-plist|plan|council|stop|run|status|lake-score|lake-maintain|lake-promote|force-score|cost|sandbox|trace|benchmark|self-improve|cost-budget|coverage|flake|mutation|ci-release|ci-bootstrap|ops-readiness|compliance|stress|recovery|contributor-smoke|qa|production-gap|synthesize|hydrate|wiki> [flags]")
+	fmt.Println("qsm <capacity|doctor|harness-readiness|real-harness-smoke|route-health|deploy|autorun|autorun-plist|plan|council|stop|run|status|lake-score|lake-maintain|lake-promote|force-score|cost|sandbox|trace|benchmark|self-improve|cost-budget|failure-analyze|coverage|flake|mutation|ci-release|ci-bootstrap|ops-readiness|compliance|stress|recovery|contributor-smoke|qa|production-gap|synthesize|hydrate|wiki> [flags]")
 }
 
 func run(args []string) {
@@ -2032,6 +2035,36 @@ func traceMarkdown(report TraceReport) string {
 		fmt.Fprintf(&b, "| %s | %v | %d | %d | %d | %d | %d |\n", room.PositionID, room.Missing, room.Events, room.Starts, room.Ends, room.Unmatched, room.CWDEscapes)
 	}
 	return b.String()
+}
+
+func failureAnalyzeCmd(args []string) {
+	fs := flag.NewFlagSet("failure-analyze", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace root")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	writeLake := fs.Bool("write-lake", true, "write failure lessons into .lake/cache and .lake/failures")
+	writeRooms := fs.Bool("write-rooms", true, "write per-room failure-evidence/failure.json files")
+	_ = fs.Parse(args)
+
+	q := mustOpen(*root)
+	report, err := failure.Analyze(failure.Options{
+		Root:       *root,
+		Lake:       q,
+		WriteLake:  *writeLake,
+		WriteRooms: *writeRooms,
+	})
+	must(err)
+	must(writeJSON(filepath.Join(*root, ".state", "failure_report.json"), report))
+	must(os.WriteFile(filepath.Join(*root, ".state", "failure_report.md"), []byte(failure.Markdown(report)), 0644))
+	if *jsonOut {
+		data, err := json.MarshalIndent(report, "", "  ")
+		must(err)
+		fmt.Println(string(data))
+		return
+	}
+	fmt.Print(failure.Markdown(report))
+	if !report.Passed {
+		os.Exit(1)
+	}
 }
 
 type CostBudgetReport struct {
@@ -4216,6 +4249,10 @@ func runQA(root, profile string, refresh bool, sandboxBackend string, image stri
 		if lakeReport, lakeErr := lakebrain.Analyze(mustOpen(rootAbs), runReport); lakeErr == nil {
 			_ = lakebrain.Write(rootAbs, lakeReport)
 		}
+		if failureReport, failureErr := failure.Analyze(failure.Options{Root: rootAbs, Lake: mustOpen(rootAbs), WriteLake: true, WriteRooms: true, RunReport: runReport, ReportGiven: true}); failureErr == nil {
+			_ = writeJSON(filepath.Join(rootAbs, ".state", "failure_report.json"), failureReport)
+			_ = os.WriteFile(filepath.Join(rootAbs, ".state", "failure_report.md"), []byte(failure.Markdown(failureReport)), 0644)
+		}
 		budgetReport := buildCostBudgetReport(rootAbs)
 		_ = writeJSON(filepath.Join(rootAbs, ".state", "cost_budget_report.json"), budgetReport)
 		_ = os.WriteFile(filepath.Join(rootAbs, ".state", "cost_budget_report.md"), []byte(costBudgetMarkdown(budgetReport)), 0644)
@@ -4400,6 +4437,7 @@ func runQA(root, profile string, refresh bool, sandboxBackend string, image stri
 		rec  string
 	}{
 		{"trace-replay", "Trace/replay evidence", filepath.Join(rootAbs, ".state", "trace_report.json"), "Emit LLM/tool/file-edit traces into the lake."},
+		{"failure-learning", "Failure learning evidence", filepath.Join(rootAbs, ".state", "failure_report.json"), "Run qsm failure-analyze so failed nodes become typed lake lessons before regrowth."},
 		{"stress", "Concurrency stress evidence", filepath.Join(rootAbs, ".state", "stress_report.json"), "Run qsm stress with enough nodes/parallelism for the target profile."},
 		{"recovery", "Self-healing recovery evidence", filepath.Join(rootAbs, ".state", "recovery_report.json"), "Run qsm recovery and verify failure capture plus recovery pass."},
 		{"contributor-smoke", "Contributor setup smoke evidence", filepath.Join(rootAbs, ".state", "contributor_smoke_report.json"), "Run qsm contributor-smoke to prove a new developer can build/test from checkout."},
