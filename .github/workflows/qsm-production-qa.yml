@@ -66,10 +66,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qsm-production-evidence
+          include-hidden-files: true
           path: |
-            .state/*.json
-            .state/*.md
-            .benchmarks/**/.state/*.json
-            .benchmarks/**/.state/*.md
-            .benchmarks/**/benchmark.log
+            .state/**
+            .benchmarks/**
           retention-days: 14

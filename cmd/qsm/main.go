@@ -2333,14 +2333,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qsm-production-evidence
+          include-hidden-files: true
           path: |
-            %s.state/*.json
-            %s.state/*.md
-            %s.benchmarks/**/.state/*.json
-            %s.benchmarks/**/.state/*.md
-            %s.benchmarks/**/benchmark.log
+            %s.state/**
+            %s.benchmarks/**
           retention-days: 14
-`, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix, prefix, prefix, prefix)
+`, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix)
 }
 
 type StressReport struct {
@@ -3304,10 +3302,32 @@ type SelfImproveReport struct {
 	ForceDelta          float64             `json:"force_delta"`
 	RepeatedFailureRate float64             `json:"repeated_failure_rate"`
 	FailedTasks         map[string]int      `json:"failed_tasks,omitempty"`
+	TaskSummaries       []SelfImproveCycle  `json:"task_summaries,omitempty"`
 	LessonsPromoted     []SelfImproveLesson `json:"lessons_promoted,omitempty"`
 	CycleReports        []BenchmarkReport   `json:"cycle_reports,omitempty"`
 	Errors              []string            `json:"errors,omitempty"`
 	CreatedAt           time.Time           `json:"created_at"`
+}
+
+type SelfImproveCycle struct {
+	Cycle int                      `json:"cycle"`
+	Tasks []SelfImproveTaskSummary `json:"tasks"`
+}
+
+type SelfImproveTaskSummary struct {
+	Name                      string  `json:"name"`
+	Passed                    bool    `json:"passed"`
+	ProductKind               string  `json:"product_kind,omitempty"`
+	ExitCode                  int     `json:"exit_code"`
+	SucceededNodes            int     `json:"succeeded_nodes"`
+	FailedNodes               int     `json:"failed_nodes"`
+	CollapseApproved          bool    `json:"collapse_approved"`
+	TracePassed               bool    `json:"trace_passed"`
+	ManifestPassed            bool    `json:"manifest_passed"`
+	LakeCacheCitationCoverage float64 `json:"lake_cache_citation_coverage"`
+	ForceAverage              float64 `json:"force_average"`
+	Error                     string  `json:"error,omitempty"`
+	LogTail                   string  `json:"log_tail,omitempty"`
 }
 
 type SelfImproveLesson struct {
@@ -3377,11 +3397,31 @@ func runSelfImprove(root, suite string, cycles int, harnessMode, sandboxBackend,
 			firstForce = avgForce
 		}
 		lastForce = avgForce
+		cycleSummary := SelfImproveCycle{Cycle: cycle}
 		for _, task := range report.Tasks {
 			if !task.Passed {
 				failures[task.Name]++
 			}
+			summary := SelfImproveTaskSummary{
+				Name:                      task.Name,
+				Passed:                    task.Passed,
+				ProductKind:               task.ProductKind,
+				ExitCode:                  task.ExitCode,
+				SucceededNodes:            task.SucceededNodes,
+				FailedNodes:               task.FailedNodes,
+				CollapseApproved:          task.CollapseApproved,
+				TracePassed:               task.TracePassed,
+				ManifestPassed:            task.ManifestPassed,
+				LakeCacheCitationCoverage: task.LakeCacheCitationCoverage,
+				ForceAverage:              task.ForceAverage,
+				Error:                     task.Error,
+			}
+			if !task.Passed {
+				summary.LogTail = tailTextFile(task.LogPath, 80)
+			}
+			cycleSummary.Tasks = append(cycleSummary.Tasks, summary)
 		}
+		out.TaskSummaries = append(out.TaskSummaries, cycleSummary)
 		lesson := SelfImproveLesson{
 			ID:       fmt.Sprintf("self-improve-cycle-%d", cycle),
 			Source:   fmt.Sprintf("benchmark:%s:cycle:%d", suite, cycle),
@@ -3496,6 +3536,31 @@ func selfImproveMarkdown(report SelfImproveReport) string {
 		sort.Strings(names)
 		for _, name := range names {
 			fmt.Fprintf(&b, "- `%s` failed in `%d` cycle(s)\n", name, report.FailedTasks[name])
+		}
+	}
+	if len(report.TaskSummaries) > 0 {
+		b.WriteString("\n## Cycle Task Summary\n\n")
+		b.WriteString("| Cycle | Task | Passed | Exit | Nodes | Collapse | Trace | Manifest | Cache/wiki citations | Force | Error |\n")
+		b.WriteString("| ---: | --- | --- | ---: | ---: | --- | --- | --- | ---: | ---: | --- |\n")
+		for _, cycle := range report.TaskSummaries {
+			for _, task := range cycle.Tasks {
+				fmt.Fprintf(&b, "| %d | %s | %v | %d | %d/%d | %v | %v | %v | %.2f | %.1f | %s |\n",
+					cycle.Cycle, task.Name, task.Passed, task.ExitCode, task.SucceededNodes, task.SucceededNodes+task.FailedNodes, task.CollapseApproved, task.TracePassed, task.ManifestPassed, task.LakeCacheCitationCoverage, task.ForceAverage, markdownTableCell(truncateStatusError(task.Error, 180)))
+			}
+		}
+		for _, cycle := range report.TaskSummaries {
+			for _, task := range cycle.Tasks {
+				if task.LogTail == "" {
+					continue
+				}
+				fmt.Fprintf(&b, "\n### Cycle %d `%s` Log Tail\n\n", cycle.Cycle, task.Name)
+				b.WriteString("```text\n")
+				b.WriteString(task.LogTail)
+				if !strings.HasSuffix(task.LogTail, "\n") {
+					b.WriteString("\n")
+				}
+				b.WriteString("```\n")
+			}
 		}
 	}
 	if len(report.Errors) > 0 {
@@ -5054,6 +5119,30 @@ func truncateStatusError(value string, limit int) string {
 		return value[:limit]
 	}
 	return value[:limit-15] + "...[truncated]"
+}
+
+func markdownTableCell(value string) string {
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "|", "\\|")
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return value
+}
+
+func tailTextFile(path string, maxLines int) string {
+	if strings.TrimSpace(path) == "" || maxLines <= 0 {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "unable to read log tail: " + err.Error()
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func defaultDeepSeekKeyFile() string {
