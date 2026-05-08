@@ -2325,6 +2325,26 @@ jobs:
             echo "::endgroup::"
             exit 1
           }
+      - name: Autonomy evidence
+        working-directory: %s
+        run: |
+          ./qsm autorun-plist \
+            -request "product_kind=cli-tool. Build an autonomous QA smoke product with tests and cache/wiki citations." \
+            -harness simulated \
+            -positions 2 \
+            -parallel 2 \
+            -route-health=false
+          ./qsm autorun \
+            -request "product_kind=cli-tool. Build an autonomous QA smoke product with tests and cache/wiki citations." \
+            -harness simulated \
+            -positions 2 \
+            -parallel 2 \
+            -max-cycles 1 \
+            -interval 1s \
+            -cycle-timeout 10m \
+            -route-health=false \
+            -deploy-router=false \
+            -shared-cache=true
       - name: Production root run
         working-directory: %s
         run: |
@@ -2339,6 +2359,7 @@ jobs:
       - name: Local evidence reports
         working-directory: %s
         run: |
+          ./qsm production-gap || true
           ./qsm ops-readiness
           ./qsm compliance
       - name: Production QA
@@ -2368,7 +2389,7 @@ jobs:
             %s.state/**
             %s.benchmarks/**
           retention-days: 14
-`, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix)
+`, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix)
 }
 
 type StressReport struct {

@@ -52,6 +52,25 @@ jobs:
             echo "::endgroup::"
             exit 1
           }
+      - name: Autonomy evidence
+        run: |
+          ./qsm autorun-plist \
+            -request "product_kind=cli-tool. Build an autonomous QA smoke product with tests and cache/wiki citations." \
+            -harness simulated \
+            -positions 2 \
+            -parallel 2 \
+            -route-health=false
+          ./qsm autorun \
+            -request "product_kind=cli-tool. Build an autonomous QA smoke product with tests and cache/wiki citations." \
+            -harness simulated \
+            -positions 2 \
+            -parallel 2 \
+            -max-cycles 1 \
+            -interval 1s \
+            -cycle-timeout 10m \
+            -route-health=false \
+            -deploy-router=false \
+            -shared-cache=true
       - name: Production root run
         run: |
           ./qsm run \
@@ -64,6 +83,7 @@ jobs:
             -retries 1
       - name: Local evidence reports
         run: |
+          ./qsm production-gap || true
           ./qsm ops-readiness
           ./qsm compliance
       - name: Production QA
