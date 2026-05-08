@@ -50,6 +50,7 @@ Run #17 made `omni-alpha` blocking rather than advisory. The workflow now fails 
 - The workflow writes a production-gap report after the blocking Omni Alpha QA step.
 - `qsm harness-readiness` and `qsm real-harness-smoke` now provide the first separated live-agent evidence lane without weakening the simulated contract gate.
 - `qsm failure-analyze` now turns failed nodes into typed failure evidence, lake failure records, and reusable `failure_lesson` cache items.
+- Node execution now emits `plan`, `build`, and `test` room checkpoints so future regrowth can restart from a safe seed instead of blindly retrying.
 
 ## Honest Claim Boundary
 

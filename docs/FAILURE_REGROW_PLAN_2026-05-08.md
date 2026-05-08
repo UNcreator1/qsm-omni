@@ -199,6 +199,14 @@ Checkpoint layout:
 └── manifest.json
 ```
 
+Checkpoint primitive status:
+
+- `internal/checkpoint` now writes deterministic `phase.tar.gz` room snapshots.
+- Node execution writes `plan`, `build`, and `test` checkpoints.
+- Checkpoints exclude recursive checkpoint archives, `.git`, `node_modules`, Python caches, and temp archives.
+- `checkpoints/manifest.json` records phase, path, file count, bytes, hash, and timestamp.
+- `qsm failure-analyze` points failures at the best existing checkpoint when one is available.
+
 Manifest fields:
 
 - checkpoint ID;

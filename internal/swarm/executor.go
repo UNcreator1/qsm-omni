@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nemoclaws/quantum-swarm-v3/internal/checkpoint"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/grounding"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/lake"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/nodekit"
@@ -134,6 +135,7 @@ func (e Executor) runOne(ctx context.Context, obj Objective, p Position, agent A
 	_ = UpdateRoomStatus(p.Room, func(status *RoomStatus) {
 		status.Phase = "nodekit_ready"
 	})
+	_, _ = checkpoint.Create(p.Room, "plan")
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if e.writeRoomCache(obj, p) == nil && e.SharedCache {
 			MarkRoomCacheRefresh(p.Room, attempt)
@@ -147,6 +149,13 @@ func (e Executor) runOne(ctx context.Context, obj Objective, p Position, agent A
 		stopWatchdog := e.startNoProgressWatchdog(attemptCtx, p.Room, cancelAttempt)
 		stopSupervisor := e.startCacheSupervisor(ctx, obj, p, attempt)
 		result, err = e.Harness.Execute(attemptCtx, p, agent, obj)
+		if cp, cpErr := checkpoint.Create(p.Room, "build"); cpErr == nil {
+			if result.Metadata == nil {
+				result.Metadata = map[string]any{}
+			}
+			result.Metadata["checkpoint_build"] = cp.Path
+			result.Metadata["checkpoint_build_sha256"] = cp.SHA256
+		}
 		stopSupervisor()
 		watchdog := stopWatchdog()
 		cancelAttempt()
@@ -203,6 +212,10 @@ func (e Executor) runOne(ctx context.Context, obj Objective, p Position, agent A
 	}
 	if result.Metadata == nil {
 		result.Metadata = map[string]any{}
+	}
+	if cp, cpErr := checkpoint.Create(p.Room, "test"); cpErr == nil {
+		result.Metadata["checkpoint_test"] = cp.Path
+		result.Metadata["checkpoint_test_sha256"] = cp.SHA256
 	}
 	result.Metadata["qsm_harness_kit"] = filepath.Join(p.Room, ".qsm_harness", "manifest.json")
 	result.Metadata["qsm_harness_kit_schema"] = kit.Schema
