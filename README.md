@@ -50,7 +50,7 @@ go run ./cmd/qsm production-gap -root .
 
 ## QA Profiles
 
-`qsm qa` is the release gate for the current run. It writes `.state/qa_report.json` and `.state/qa_report.md`. Production QA is intentionally blocked until sandbox, trace, benchmark, lake-citation, coverage, mutation, flake, and CI gates have real evidence. As of the current local evidence set, Docker-backed local-production passes and `omni-alpha` is blocked only by hosted CI release evidence.
+`qsm qa` is the release gate for the current run. It writes `.state/qa_report.json` and `.state/qa_report.md`. Production and Omni-Creator Alpha claims are only valid when the same Docker-backed gates pass in hosted CI without `QSM_ALLOW_LOCAL_RELEASE_EVIDENCE`. As of 2026-05-08, GitHub Actions run [#17](https://github.com/UNcreator1/qsm-omni/actions/runs/25544380416) passes the blocking `production` and `omni-alpha` profiles with the `qsm-omni-sandbox:local` image.
 
 Evidence producers write the production gate inputs directly:
 

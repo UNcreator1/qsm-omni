@@ -1,5 +1,7 @@
 # QSM Omni-Creator Alpha Status - 2026-05-07
 
+> Superseded by `docs/OMNI_CREATOR_ALPHA_STATUS_2026-05-08.md`, where hosted CI run #17 closes the `ci-release` blocker and makes `omni-alpha` a blocking gate.
+
 ## Current Level
 
 QSM now has the core Omni-Creator Alpha gates implemented and Docker-backed local-production QA is green. The repo is **not yet externally production-ready** and **not yet Omni-Creator Alpha** for one honest reason: hosted CI release evidence is still missing. The corrected force scorer now reports `9.6/10` with visible per-category scores, but production claims remain blocked until GitHub Actions produces CI evidence without the local waiver.
