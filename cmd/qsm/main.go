@@ -2325,15 +2325,35 @@ jobs:
             echo "::endgroup::"
             exit 1
           }
+      - name: Production root run
+        working-directory: %s
+        run: |
+          ./qsm run \
+            -request "product_kind=node-fullstack. Build a production QA root product with tests, manifest, cache/wiki citations, traceable execution, and delivery evidence." \
+            -harness simulated \
+            -positions 7 \
+            -parallel 4 \
+            -sandbox docker \
+            -shared-cache=true \
+            -retries 1
       - name: Local evidence reports
         working-directory: %s
         run: |
-          ./qsm production-gap || true
           ./qsm ops-readiness
           ./qsm compliance
       - name: Production QA
         working-directory: %s
-        run: ./qsm qa -profile production -sandbox docker -image qsm-omni-sandbox:local -refresh=true
+        run: |
+          ./qsm qa -profile production -sandbox docker -image qsm-omni-sandbox:local -refresh=true || {
+            python3 scripts/emit_qa_annotations.py .state/qa_report.json || true
+            echo "::group::qa_report"
+            cat .state/qa_report.md || true
+            echo "::endgroup::"
+            echo "::group::production_gap"
+            cat .state/production_gap_report.md || true
+            echo "::endgroup::"
+            exit 1
+          }
       - name: Omni alpha QA advisory
         working-directory: %s
         continue-on-error: true
@@ -2348,7 +2368,7 @@ jobs:
             %s.state/**
             %s.benchmarks/**
           retention-days: 14
-`, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix)
+`, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix)
 }
 
 type StressReport struct {
