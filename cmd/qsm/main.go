@@ -2390,10 +2390,20 @@ jobs:
             echo "::endgroup::"
             exit 1
           }
-      - name: Omni alpha QA advisory
+      - name: Omni alpha QA
         working-directory: %s
-        continue-on-error: true
-        run: ./qsm qa -profile omni-alpha -sandbox docker -image qsm-omni-sandbox:local -refresh=true
+        run: |
+          ./qsm qa -profile omni-alpha -sandbox docker -image qsm-omni-sandbox:local -refresh=true || {
+            python3 scripts/emit_qa_annotations.py .state/qa_report.json || true
+            echo "::group::omni_alpha_qa_report"
+            cat .state/qa_report.md || true
+            echo "::endgroup::"
+            exit 1
+          }
+      - name: Production gap after Omni alpha
+        working-directory: %s
+        if: always()
+        run: ./qsm production-gap
       - name: Upload QSM evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -2404,7 +2414,7 @@ jobs:
             %s.state/**
             %s.benchmarks/**
           retention-days: 14
-`, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix)
+`, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, workDir, prefix, prefix)
 }
 
 type StressReport struct {
