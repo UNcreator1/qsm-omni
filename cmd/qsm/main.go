@@ -2361,7 +2361,7 @@ jobs:
         run: |
           ./qsm production-gap || true
           ./qsm ops-readiness
-          ./qsm compliance
+          ./qsm compliance -sandbox docker -image qsm-omni-sandbox:local
       - name: Production QA
         working-directory: %s
         run: |
@@ -2692,8 +2692,18 @@ type ComplianceReport struct {
 func complianceCmd(args []string) {
 	fs := flag.NewFlagSet("compliance", flag.ExitOnError)
 	root := fs.String("root", ".", "workspace root")
+	sandboxBackend := fs.String("sandbox", sandbox.BackendAuto, "sandbox backend used when refreshing missing sandbox evidence")
+	image := fs.String("image", "", "Docker image used when refreshing missing sandbox evidence")
 	jsonOut := fs.Bool("json", false, "print JSON")
 	_ = fs.Parse(args)
+	if strings.TrimSpace(*image) != "" {
+		_ = os.Setenv("QSM_SANDBOX_DOCKER_IMAGE", strings.TrimSpace(*image))
+	}
+	rootAbs, err := filepath.Abs(*root)
+	must(err)
+	if !fileExists(filepath.Join(rootAbs, ".state", "sandbox_report.json")) {
+		_ = sandbox.Write(rootAbs, sandbox.InspectWithProbe(rootAbs, sandbox.NormalizeBackend(*sandboxBackend)))
+	}
 	report := buildComplianceReport(*root)
 	must(writeJSON(filepath.Join(*root, ".state", "compliance_report.json"), report))
 	must(os.WriteFile(filepath.Join(*root, ".state", "compliance_report.md"), []byte(complianceMarkdown(report)), 0644))

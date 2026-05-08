@@ -85,7 +85,7 @@ jobs:
         run: |
           ./qsm production-gap || true
           ./qsm ops-readiness
-          ./qsm compliance
+          ./qsm compliance -sandbox docker -image qsm-omni-sandbox:local
       - name: Production QA
         run: |
           ./qsm qa -profile production -sandbox docker -image qsm-omni-sandbox:local -refresh=true || {
