@@ -2316,35 +2316,7 @@ jobs:
         working-directory: %s
         run: |
           ./qsm self-improve -suite omni-contract -cycles 3 -sandbox docker -image qsm-omni-sandbox:local || {
-            python3 - <<'PY' || true
-            import json
-            from pathlib import Path
-
-            def esc(value):
-                value = str(value or "")
-                return value.replace("%%", "%%25").replace("\n", "%%0A").replace("\r", "%%0D").replace(":", "%%3A").replace(",", "%%2C")
-
-            path = Path(".state/self_improvement_report.json")
-            if path.exists():
-                report = json.loads(path.read_text())
-                for err in report.get("errors", []):
-                    print(f"::error title=QSM self-improve gate::{esc(err)}")
-                for cycle in report.get("task_summaries", []):
-                    cycle_id = cycle.get("cycle")
-                    for task in cycle.get("tasks", []):
-                        if task.get("passed"):
-                            continue
-                        msg = (
-                            f"cycle={cycle_id} task={task.get('name')} exit={task.get('exit_code')} "
-                            f"nodes={task.get('succeeded_nodes')}/{task.get('succeeded_nodes', 0) + task.get('failed_nodes', 0)} "
-                            f"collapse={task.get('collapse_approved')} trace={task.get('trace_passed')} "
-                            f"manifest={task.get('manifest_passed')} cachewiki={task.get('lake_cache_citation_coverage')} "
-                            f"force={task.get('force_average')} error={task.get('error')}"
-                        )
-                        print(f"::error title=QSM failed {esc(task.get('name'))}::{esc(msg)}")
-            else:
-                print("::error title=QSM self-improve report missing::.state/self_improvement_report.json was not created")
-            PY
+            python3 scripts/emit_self_improve_annotations.py .state/self_improvement_report.json || true
             echo "::group::self_improvement_report"
             cat .state/self_improvement_report.md || true
             echo "::endgroup::"
