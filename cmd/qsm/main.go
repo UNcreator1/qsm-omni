@@ -4448,18 +4448,20 @@ func qaReportFilePassed(path string) (bool, string) {
 }
 
 type ProductionGapReport struct {
-	Schema          string              `json:"schema"`
-	Root            string              `json:"root"`
-	ProductionReady bool                `json:"production_ready"`
-	TopTierReady    bool                `json:"top_tier_ready"`
-	QAProfile       string              `json:"qa_profile,omitempty"`
-	QAPassed        bool                `json:"qa_passed"`
-	ForceAverage    float64             `json:"force_average"`
-	ForceTopTier    bool                `json:"force_top_tier"`
-	FailedGates     []ProductionGapItem `json:"failed_gates,omitempty"`
-	CategoryGaps    []ProductionGapItem `json:"category_gaps,omitempty"`
-	NextActions     []string            `json:"next_actions,omitempty"`
-	CreatedAt       time.Time           `json:"created_at"`
+	Schema                 string              `json:"schema"`
+	Root                   string              `json:"root"`
+	ProductionReady        bool                `json:"production_ready"`
+	TopTierReady           bool                `json:"top_tier_ready"`
+	QAProfile              string              `json:"qa_profile,omitempty"`
+	QAPassed               bool                `json:"qa_passed"`
+	ForceAverage           float64             `json:"force_average"`
+	ForceTopTier           bool                `json:"force_top_tier"`
+	RealHarnessSmokePassed bool                `json:"real_harness_smoke_passed"`
+	RealHarnessMode        string              `json:"real_harness_mode,omitempty"`
+	FailedGates            []ProductionGapItem `json:"failed_gates,omitempty"`
+	CategoryGaps           []ProductionGapItem `json:"category_gaps,omitempty"`
+	NextActions            []string            `json:"next_actions,omitempty"`
+	CreatedAt              time.Time           `json:"created_at"`
 }
 
 type ProductionGapItem struct {
@@ -4539,9 +4541,22 @@ func buildProductionGapReport(root string) ProductionGapReport {
 		out.CategoryGaps = append(out.CategoryGaps, ProductionGapItem{ID: "force-score", Name: "Force requirements score", Status: "FAIL", Evidence: "missing .state/force_score.json", Recommendation: "Run qsm force-score or qsm qa -refresh=true."})
 		out.NextActions = append(out.NextActions, "Run qsm force-score or qsm qa -refresh=true.")
 	}
+	var realSmoke RealHarnessSmokeReport
+	if readJSON(filepath.Join(root, ".state", "real_harness_smoke_report.json"), &realSmoke) == nil && realSmoke.Schema != "" {
+		out.RealHarnessSmokePassed = realSmoke.Passed
+		out.RealHarnessMode = realSmoke.HarnessMode
+		if !realSmoke.Passed {
+			evidence := fmt.Sprintf("harness=%s readiness=%v healthy_routes=%d/%d run_succeeded=%v errors=%s", realSmoke.HarnessMode, realSmoke.Readiness.Passed, realSmoke.HealthyRoutes, realSmoke.TotalRoutes, realSmoke.RunSucceeded, strings.Join(realSmoke.Errors, "; "))
+			out.CategoryGaps = append(out.CategoryGaps, ProductionGapItem{ID: "real-harness-smoke", Name: "Live OpenCode/LangChain smoke", Status: "FAIL", Evidence: evidence, Recommendation: "Run qsm real-harness-smoke with live 9Router and harness prerequisites, then promote to stress."})
+			out.NextActions = append(out.NextActions, "Run qsm real-harness-smoke with live 9Router and harness prerequisites, then promote to stress.")
+		}
+	} else {
+		out.CategoryGaps = append(out.CategoryGaps, ProductionGapItem{ID: "real-harness-smoke", Name: "Live OpenCode/LangChain smoke", Status: "FAIL", Evidence: "missing .state/real_harness_smoke_report.json", Recommendation: "Run qsm real-harness-smoke -harness langchain -sandbox docker."})
+		out.NextActions = append(out.NextActions, "Run qsm real-harness-smoke -harness langchain -sandbox docker.")
+	}
 	out.NextActions = uniqueStrings(out.NextActions)
 	out.ProductionReady = out.QAProfile == "production" && out.QAPassed && out.ForceAverage >= 8.5
-	out.TopTierReady = out.QAProfile == "omni-alpha" && out.QAPassed && out.ForceAverage >= 9.5 && out.ForceTopTier
+	out.TopTierReady = out.QAProfile == "omni-alpha" && out.QAPassed && out.ForceAverage >= 9.5 && out.ForceTopTier && out.RealHarnessSmokePassed
 	return out
 }
 
@@ -4551,6 +4566,7 @@ func productionGapMarkdown(report ProductionGapReport) string {
 	fmt.Fprintf(&b, "- Production ready: `%v`\n", report.ProductionReady)
 	fmt.Fprintf(&b, "- Top-tier ready: `%v`\n", report.TopTierReady)
 	fmt.Fprintf(&b, "- QA: profile=`%s` passed=`%v`\n", report.QAProfile, report.QAPassed)
+	fmt.Fprintf(&b, "- Real harness smoke: `%v` mode=`%s`\n", report.RealHarnessSmokePassed, report.RealHarnessMode)
 	fmt.Fprintf(&b, "- Force score: `%.1f/10` top_tier=`%v`\n\n", report.ForceAverage, report.ForceTopTier)
 	if len(report.FailedGates) > 0 {
 		b.WriteString("## Failed Production Gates\n\n")
