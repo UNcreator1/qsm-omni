@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nemoclaws/quantum-swarm-v3/internal/sandbox"
 )
 
 func TestVerifyGenericProductWritesPassingReport(t *testing.T) {
@@ -241,6 +243,13 @@ func TestVerifyPythonCompileFailsSyntaxError(t *testing.T) {
 	}
 	if report.Passed {
 		t.Fatalf("expected Python syntax failure: %#v", report)
+	}
+}
+
+func TestPythonExecutableForDockerRunnerUsesContainerPath(t *testing.T) {
+	runner := sandbox.DockerRunner{}
+	if got := pythonExecutableForRunner(runner); got != "python3" {
+		t.Fatalf("expected Docker Python command to be container portable, got %q", got)
 	}
 }
 

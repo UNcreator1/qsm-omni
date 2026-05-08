@@ -357,7 +357,7 @@ func autoCommands(ctx context.Context, room, product string, d detector, reportD
 		}
 	}
 	if d.hasPython {
-		py := pythonExecutable()
+		py := pythonExecutableForRunner(runner)
 		if py == "" {
 			report.Errors = append(report.Errors, "python files detected but python executable is not available")
 		} else {
@@ -945,6 +945,13 @@ func pythonExecutable() string {
 		}
 	}
 	return ""
+}
+
+func pythonExecutableForRunner(runner sandbox.Runner) string {
+	if runner != nil && runner.Backend() == sandbox.BackendDocker {
+		return "python3"
+	}
+	return pythonExecutable()
 }
 
 func manifestCommandBanned(cmd []string) bool {
