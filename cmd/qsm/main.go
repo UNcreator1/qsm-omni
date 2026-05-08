@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/nemoclaws/quantum-swarm-v3/internal/capacity"
+	"github.com/nemoclaws/quantum-swarm-v3/internal/checkpoint"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/collapse"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/costing"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/council"
@@ -93,6 +94,8 @@ func main() {
 		costBudgetCmd(os.Args[2:])
 	case "failure-analyze":
 		failureAnalyzeCmd(os.Args[2:])
+	case "regrow":
+		regrowCmd(os.Args[2:])
 	case "coverage":
 		coverageCmd(os.Args[2:])
 	case "flake":
@@ -130,7 +133,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Println("qsm <capacity|doctor|harness-readiness|real-harness-smoke|route-health|deploy|autorun|autorun-plist|plan|council|stop|run|status|lake-score|lake-maintain|lake-promote|force-score|cost|sandbox|trace|benchmark|self-improve|cost-budget|failure-analyze|coverage|flake|mutation|ci-release|ci-bootstrap|ops-readiness|compliance|stress|recovery|contributor-smoke|qa|production-gap|synthesize|hydrate|wiki> [flags]")
+	fmt.Println("qsm <capacity|doctor|harness-readiness|real-harness-smoke|route-health|deploy|autorun|autorun-plist|plan|council|stop|run|status|lake-score|lake-maintain|lake-promote|force-score|cost|sandbox|trace|benchmark|self-improve|cost-budget|failure-analyze|regrow|coverage|flake|mutation|ci-release|ci-bootstrap|ops-readiness|compliance|stress|recovery|contributor-smoke|qa|production-gap|synthesize|hydrate|wiki> [flags]")
 }
 
 func run(args []string) {
@@ -2065,6 +2068,199 @@ func failureAnalyzeCmd(args []string) {
 	if !report.Passed {
 		os.Exit(1)
 	}
+}
+
+type RegrowReport struct {
+	Schema       string       `json:"schema"`
+	Root         string       `json:"root"`
+	SourceReport string       `json:"source_report"`
+	Passed       bool         `json:"passed"`
+	Requested    int          `json:"requested"`
+	Seeded       int          `json:"seeded"`
+	Skipped      int          `json:"skipped"`
+	Seeds        []RegrowSeed `json:"seeds,omitempty"`
+	Errors       []string     `json:"errors,omitempty"`
+	CreatedAt    time.Time    `json:"created_at"`
+}
+
+type RegrowSeed struct {
+	FailureID       string `json:"failure_id"`
+	PositionID      string `json:"position_id"`
+	SourceRoom      string `json:"source_room"`
+	RegrowRoom      string `json:"regrow_room"`
+	CheckpointPath  string `json:"checkpoint_path,omitempty"`
+	CheckpointPhase string `json:"checkpoint_phase,omitempty"`
+	LessonCacheID   string `json:"lesson_cache_id,omitempty"`
+	Prepared        bool   `json:"prepared"`
+	SkippedReason   string `json:"skipped_reason,omitempty"`
+}
+
+func regrowCmd(args []string) {
+	fs := flag.NewFlagSet("regrow", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace root")
+	fromFailures := fs.String("from-failures", ".state/failure_report.json", "failure report path")
+	limit := fs.Int("limit", 3, "maximum regrow rooms to seed")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	_ = fs.Parse(args)
+
+	report, err := buildRegrowReport(*root, *fromFailures, *limit)
+	must(err)
+	must(writeJSON(filepath.Join(*root, ".state", "regrow_report.json"), report))
+	must(os.WriteFile(filepath.Join(*root, ".state", "regrow_report.md"), []byte(regrowMarkdown(report)), 0644))
+	if *jsonOut {
+		data, err := json.MarshalIndent(report, "", "  ")
+		must(err)
+		fmt.Println(string(data))
+		return
+	}
+	fmt.Print(regrowMarkdown(report))
+	if !report.Passed {
+		os.Exit(1)
+	}
+}
+
+func buildRegrowReport(root, fromFailures string, limit int) (RegrowReport, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return RegrowReport{}, err
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+	source := fromFailures
+	if !filepath.IsAbs(source) {
+		source = filepath.Join(rootAbs, source)
+	}
+	var failures failure.Report
+	if err := readJSON(source, &failures); err != nil {
+		return RegrowReport{Schema: "qsm.regrow_report.v1", Root: rootAbs, SourceReport: source, Passed: false, Errors: []string{err.Error()}, CreatedAt: time.Now().UTC()}, nil
+	}
+	out := RegrowReport{Schema: "qsm.regrow_report.v1", Root: rootAbs, SourceReport: source, Passed: true, CreatedAt: time.Now().UTC()}
+	for _, item := range failures.Failures {
+		if out.Seeded >= limit {
+			break
+		}
+		out.Requested++
+		seed := RegrowSeed{
+			FailureID:       item.ID,
+			PositionID:      item.PositionID,
+			SourceRoom:      item.Room,
+			CheckpointPath:  item.CheckpointPath,
+			CheckpointPhase: item.CheckpointPhase,
+			LessonCacheID:   item.LessonCacheID,
+		}
+		if !item.RegrowRecommended {
+			seed.SkippedReason = "failure is not recommended for regrowth"
+			out.Skipped++
+			out.Seeds = append(out.Seeds, seed)
+			continue
+		}
+		room, err := nextRegrowRoom(rootAbs, item.PositionID)
+		if err != nil {
+			seed.SkippedReason = err.Error()
+			out.Errors = append(out.Errors, fmt.Sprintf("%s: %v", item.PositionID, err))
+			out.Skipped++
+			out.Seeds = append(out.Seeds, seed)
+			continue
+		}
+		seed.RegrowRoom = room
+		if item.CheckpointPath != "" {
+			if err := checkpoint.Restore(item.CheckpointPath, room); err != nil {
+				seed.SkippedReason = "restore checkpoint: " + err.Error()
+				out.Errors = append(out.Errors, fmt.Sprintf("%s: restore checkpoint: %v", item.PositionID, err))
+				out.Skipped++
+				out.Seeds = append(out.Seeds, seed)
+				continue
+			}
+		} else if err := os.MkdirAll(room, 0755); err != nil {
+			seed.SkippedReason = err.Error()
+			out.Errors = append(out.Errors, fmt.Sprintf("%s: create room: %v", item.PositionID, err))
+			out.Skipped++
+			out.Seeds = append(out.Seeds, seed)
+			continue
+		}
+		if err := writeRegrowSeedFiles(room, item); err != nil {
+			seed.SkippedReason = err.Error()
+			out.Errors = append(out.Errors, fmt.Sprintf("%s: write regrow seed: %v", item.PositionID, err))
+			out.Skipped++
+			out.Seeds = append(out.Seeds, seed)
+			continue
+		}
+		seed.Prepared = true
+		out.Seeded++
+		out.Seeds = append(out.Seeds, seed)
+	}
+	if len(failures.Failures) == 0 {
+		out.Requested = 0
+	}
+	if len(out.Errors) > 0 {
+		out.Passed = false
+	}
+	return out, nil
+}
+
+func nextRegrowRoom(root, positionID string) (string, error) {
+	name := sanitizeFileName("regrow-" + positionID)
+	if name == "" {
+		name = "regrow-position"
+	}
+	for i := 1; i <= 99; i++ {
+		room := filepath.Join(root, ".rooms", fmt.Sprintf("%s-r%d", name, i))
+		if _, err := os.Stat(room); os.IsNotExist(err) {
+			return room, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("no available regrow room for %s", positionID)
+}
+
+func writeRegrowSeedFiles(room string, item failure.Record) error {
+	if err := os.MkdirAll(filepath.Join(room, ".qsm_regrow"), 0755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(room, ".qsm_memory"), 0755); err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(room, ".qsm_regrow", "seed.json"), item); err != nil {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("# QSM Regrow Memory\n\n")
+	fmt.Fprintf(&b, "- Failure ID: `%s`\n", item.ID)
+	fmt.Fprintf(&b, "- Failed position: `%s`\n", item.PositionID)
+	fmt.Fprintf(&b, "- Failure class: `%s`\n", item.Class)
+	fmt.Fprintf(&b, "- Lesson cache ID: `%s`\n", item.LessonCacheID)
+	fmt.Fprintf(&b, "- Checkpoint phase: `%s`\n\n", item.CheckpointPhase)
+	b.WriteString("## Required Lesson\n\n")
+	b.WriteString(item.Lesson)
+	b.WriteString("\n\nThe regrown node must cite this failure lesson before claiming a fix.\n")
+	return os.WriteFile(filepath.Join(room, ".qsm_memory", "REGROW.md"), []byte(b.String()), 0644)
+}
+
+func regrowMarkdown(report RegrowReport) string {
+	var b strings.Builder
+	b.WriteString("# QSM Regrow Seed Report\n\n")
+	fmt.Fprintf(&b, "- Passed: `%v`\n", report.Passed)
+	fmt.Fprintf(&b, "- Source: `%s`\n", report.SourceReport)
+	fmt.Fprintf(&b, "- Requested: `%d`\n", report.Requested)
+	fmt.Fprintf(&b, "- Seeded: `%d`\n", report.Seeded)
+	fmt.Fprintf(&b, "- Skipped: `%d`\n", report.Skipped)
+	if len(report.Errors) > 0 {
+		b.WriteString("\n## Errors\n\n")
+		for _, err := range report.Errors {
+			b.WriteString("- " + err + "\n")
+		}
+	}
+	if len(report.Seeds) > 0 {
+		b.WriteString("\n## Seeds\n\n")
+		b.WriteString("| Position | Prepared | Regrow room | Checkpoint | Skip reason |\n")
+		b.WriteString("| --- | --- | --- | --- | --- |\n")
+		for _, seed := range report.Seeds {
+			fmt.Fprintf(&b, "| %s | %v | %s | %s | %s |\n", seed.PositionID, seed.Prepared, seed.RegrowRoom, seed.CheckpointPath, seed.SkippedReason)
+		}
+	}
+	return b.String()
 }
 
 type CostBudgetReport struct {

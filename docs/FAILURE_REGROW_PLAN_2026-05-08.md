@@ -227,6 +227,13 @@ New command:
 qsm regrow -root . -from-failures .state/failure_report.json -limit 3 -sandbox docker
 ```
 
+Initial command status:
+
+- `qsm regrow -root . -from-failures .state/failure_report.json -limit 3` now seeds fresh regrow rooms from failure records.
+- It restores the best checkpoint into `.rooms/regrow-<position>-rN`.
+- It writes `.qsm_regrow/seed.json` and `.qsm_memory/REGROW.md`.
+- It does not execute the rebuilt branch yet; execution remains the next phase so that regrowth stays reviewable and bounded.
+
 Flow:
 
 1. Read `.state/run_report.json`, `.state/verdict.json`, failure reports, and lake/cache memory.

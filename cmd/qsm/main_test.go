@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nemoclaws/quantum-swarm-v3/internal/checkpoint"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/collapse"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/costing"
+	"github.com/nemoclaws/quantum-swarm-v3/internal/failure"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/lakebrain"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/planning"
 	"github.com/nemoclaws/quantum-swarm-v3/internal/requirements"
@@ -709,6 +711,63 @@ func TestHarnessReadinessReportMarksMissingRealHarnessesNotReady(t *testing.T) {
 		if mode.ValidationError == "" {
 			t.Fatalf("expected validation error for missing prerequisites: %#v", mode)
 		}
+	}
+}
+
+func TestBuildRegrowReportSeedsFromCheckpoint(t *testing.T) {
+	root := t.TempDir()
+	room := filepath.Join(root, ".rooms", "pos-01")
+	product := filepath.Join(room, "product")
+	if err := os.MkdirAll(product, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(product, "main.py"), []byte("print('old branch')\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cp, err := checkpoint.Create(room, "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failReport := failure.Report{
+		Schema:      failure.Schema,
+		Root:        root,
+		ObjectiveID: "obj-regrow",
+		Passed:      true,
+		FailedNodes: 1,
+		Failures: []failure.Record{{
+			ID:                  "failure-v1-test",
+			ObjectiveID:         "obj-regrow",
+			PositionID:          "pos-01",
+			Room:                room,
+			Class:               failure.ClassCompileTestRuntime,
+			RegrowRecommended:   true,
+			CheckpointPhase:     "build",
+			CheckpointPath:      cp.Path,
+			Lesson:              "Make the failing parser test pass before adding features.",
+			LessonCacheID:       "abc123",
+			ResearchRecommended: false,
+		}},
+	}
+	path := filepath.Join(root, ".state", "failure_report.json")
+	if err := writeJSON(path, failReport); err != nil {
+		t.Fatal(err)
+	}
+	report, err := buildRegrowReport(root, ".state/failure_report.json", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Passed || report.Seeded != 1 {
+		t.Fatalf("expected one seeded regrow room, got %#v", report)
+	}
+	seed := report.Seeds[0]
+	if !seed.Prepared || seed.RegrowRoom == "" {
+		t.Fatalf("expected prepared seed, got %#v", seed)
+	}
+	if _, err := os.Stat(filepath.Join(seed.RegrowRoom, "product", "main.py")); err != nil {
+		t.Fatalf("expected restored product file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(seed.RegrowRoom, ".qsm_memory", "REGROW.md")); err != nil {
+		t.Fatalf("expected regrow memory: %v", err)
 	}
 }
 

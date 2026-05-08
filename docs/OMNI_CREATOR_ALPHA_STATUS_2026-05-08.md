@@ -51,6 +51,7 @@ Run #17 made `omni-alpha` blocking rather than advisory. The workflow now fails 
 - `qsm harness-readiness` and `qsm real-harness-smoke` now provide the first separated live-agent evidence lane without weakening the simulated contract gate.
 - `qsm failure-analyze` now turns failed nodes into typed failure evidence, lake failure records, and reusable `failure_lesson` cache items.
 - Node execution now emits `plan`, `build`, and `test` room checkpoints so future regrowth can restart from a safe seed instead of blindly retrying.
+- `qsm regrow` now prepares fresh regrow rooms from failure reports and checkpoint archives, injecting the failure lesson as local regrow memory.
 
 ## Honest Claim Boundary
 
@@ -72,4 +73,4 @@ Unsafe claim:
 6. Evaluate microVM isolation after Docker maturity.
 7. Add PR automation and approval gates for autonomous merge workflows.
 8. Run repeated 24/7 reliability campaigns and publish trend reports.
-9. Promote failure learning into full checkpointed branch regrowth: cut failed branches, seed from the last safe checkpoint, inject cited lake lessons, and rebuild in a fresh room.
+9. Promote seeded regrow rooms into executable bounded rebuild attempts with cited lake lessons, then compare against the failed branch and collapse only if quality improves.

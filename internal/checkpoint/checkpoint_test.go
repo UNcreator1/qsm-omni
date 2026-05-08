@@ -73,6 +73,31 @@ func TestCreateReplacesPhaseEntryInManifest(t *testing.T) {
 	}
 }
 
+func TestRestoreCheckpoint(t *testing.T) {
+	room := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(room, "product"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(room, "product", "main.py"), []byte("print('ok')\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := Create(room, "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "regrow-pos-01-r1")
+	if err := Restore(entry.Path, dest); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dest, "product", "main.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "print('ok')\n" {
+		t.Fatalf("unexpected restored data: %q", string(data))
+	}
+}
+
 func tarNames(t *testing.T, path string) []string {
 	t.Helper()
 	f, err := os.Open(path)

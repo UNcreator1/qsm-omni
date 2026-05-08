@@ -141,6 +141,71 @@ func Create(room, phase string) (Entry, error) {
 	return entry, nil
 }
 
+func Restore(archivePath, dest string) error {
+	archiveAbs, err := filepath.Abs(archivePath)
+	if err != nil {
+		return err
+	}
+	destAbs, err := filepath.Abs(dest)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(destAbs, 0755); err != nil {
+		return err
+	}
+	f, err := os.Open(archiveAbs)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		name := filepath.Clean(header.Name)
+		if filepath.IsAbs(name) || strings.HasPrefix(name, ".."+string(os.PathSeparator)) || name == ".." {
+			return errors.New("checkpoint contains unsafe path: " + header.Name)
+		}
+		target := filepath.Join(destAbs, name)
+		if !inside(destAbs, target) {
+			return errors.New("checkpoint restore escapes destination: " + header.Name)
+		}
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode))
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		}
+	}
+	return nil
+}
+
 func ReadManifest(room string) (Manifest, error) {
 	roomAbs, err := filepath.Abs(room)
 	if err != nil {
@@ -212,4 +277,17 @@ func sanitizePhase(phase string) string {
 		}
 	}
 	return b.String()
+}
+
+func inside(root, path string) bool {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	if root == path {
+		return true
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
