@@ -2,6 +2,7 @@
 .rooms/
 .state/
 .archive/
+archived-deliveries/
 .benchmarks/
 .venv/
 bin/

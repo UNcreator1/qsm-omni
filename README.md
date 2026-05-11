@@ -2,6 +2,41 @@
 
 This is a from-scratch implementation of the Quantum Swarm Team V3 concept. It is not copied from the previous prototype.
 
+## Quickstart
+
+For the practical day-to-day operator guide, start here:
+
+- [docs/USAGE_QUICKSTART.md](docs/USAGE_QUICKSTART.md)
+
+The short version:
+
+```bash
+go test ./...
+go build -o qsm ./cmd/qsm
+
+./qsm run \
+  -request "product_kind=cli-tool. Build a tiny tested CLI tool." \
+  -harness simulated \
+  -positions 3 \
+  -parallel 3 \
+  -shared-cache=true
+
+./qsm qa -profile alpha -sandbox room -refresh=true
+```
+
+For a clean new test while preserving memory:
+
+```bash
+mkdir -p archived-deliveries
+if [ -d deliveries ]; then
+  find deliveries -mindepth 1 -maxdepth 1 -exec mv {} archived-deliveries/ \;
+fi
+rm -rf .rooms .state .benchmarks
+mkdir -p .rooms .state deliveries
+```
+
+Do not delete `.lake` unless you intentionally want to erase the memory brain.
+
 ## Run
 
 ```bash
@@ -39,6 +74,8 @@ go run ./cmd/qsm mutation -root . -sandbox room
 go run ./cmd/qsm benchmark -root . -suite terminal-contract -sandbox room
 go run ./cmd/qsm benchmark -root . -suite omni-contract -sandbox docker
 go run ./cmd/qsm self-improve -root . -suite omni-contract -cycles 3 -sandbox docker
+go run ./cmd/qsm failure-analyze -root .
+go run ./cmd/qsm regrow -root . -from-failures .state/failure_report.json -limit 3
 go run ./cmd/qsm stress -root . -sandbox docker -nodes 7 -parallel 4
 go run ./cmd/qsm recovery -root . -sandbox docker
 go run ./cmd/qsm contributor-smoke -root .
